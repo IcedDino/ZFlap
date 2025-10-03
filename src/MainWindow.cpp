@@ -1,23 +1,70 @@
+/**
+ * @file MainWindow.cpp
+ * @brief Implementation of MainWindow class for ZFlap automaton manager
+ *
+ * This file contains the implementation of the MainWindow class, providing
+ * the complete user interface functionality for ZFlap. The implementation
+ * includes UI setup, styling, dialog management, and interactive animations.
+ *
+ * Key Implementation Features:
+ * - Modern Qt-based interface with custom styling
+ * - Animated button interactions using QPropertyAnimation
+ * - Modal dialogs for automaton creation and selection
+ * - Spanish localization throughout the interface
+ * - Responsive design with Charter Roman typography
+ * - Custom color scheme (RGB 120,104,48 for buttons, RGB 255,254,245 for background)
+ *
+ * Animation System:
+ * The button animations use a custom event filter system to detect hover events
+ * and apply smooth scaling and shaking animations. Each button grows by 20x10 pixels
+ * and continuously shakes with a smooth sine wave motion while hovered.
+ *
+ * @author ZFlap Team
+ * @version 1.0.0
+ */
+
 #include "MainWindow.h"
 #include <QApplication>
 #include <QScreen>
 #include <QMessageBox>
 #include <QSizePolicy>
 
+/**
+ * @brief MainWindow constructor
+ *
+ * Initializes the main window by setting up styling, UI components, and dialogs.
+ * The constructor calls setup methods in a specific order to ensure proper
+ * initialization of fonts, colors, layouts, and interactive elements.
+ */
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setupWordleStyle();
-    setupUI();
-    createMainMenu();
-    createCreateDialog();
-    createSelectDialog();
+    setupWordleStyle();    // Initialize fonts and color palette
+    setupUI();            // Set up basic window properties
+    createMainMenu();     // Create title, buttons, and layout
+    createCreateDialog(); // Initialize create automaton dialog
+    createSelectDialog(); // Initialize select automaton dialog
+
+    // Initialize alphabet selector
+    alphabetSelector = new AlphabetSelector(this);
 }
 
+/**
+ * @brief MainWindow destructor
+ *
+ * Qt handles cleanup of child widgets automatically, so no explicit
+ * cleanup is needed for UI components.
+ */
 MainWindow::~MainWindow()
 {
 }
 
+/**
+ * @brief Set up basic window properties and layout
+ *
+ * Configures the central widget, main layout, window size, and position.
+ * Centers the window on the screen and sets a fixed size for consistent appearance.
+ */
 void MainWindow::setupUI()
 {
     centralWidget = new QWidget(this);
@@ -38,24 +85,35 @@ void MainWindow::setupUI()
     setFixedSize(600, 400);
 }
 
+/**
+ * @brief Configure application color palette and fonts
+ *
+ * Sets up the visual styling for the entire application including:
+ * - Custom color palette with warm off-white background (RGB 255,254,245)
+ * - Brown button colors (RGB 120,104,48) with proper contrast
+ * - Charter Roman font for the main title with fallback options
+ * - Arial fonts for buttons and regular text
+ *
+ * The color scheme creates a warm, inviting appearance while maintaining
+ * good readability and accessibility standards.
+ */
 void MainWindow::setupWordleStyle()
 {
-    // Updated color palette
-    wordlePalette.setColor(QPalette::Window, QColor(255, 254, 245)); // Off-white background
-    wordlePalette.setColor(QPalette::WindowText, QColor(0, 0, 0)); // Black text
-    wordlePalette.setColor(QPalette::Button, QColor(240, 207, 96)); // Brown buttons
-    wordlePalette.setColor(QPalette::ButtonText, QColor(0, 0, 0)); // Black button text
-    wordlePalette.setColor(QPalette::Base, QColor(255, 255, 255)); // White input fields
-    wordlePalette.setColor(QPalette::Text, QColor(0, 0, 0)); // Black input text
-    wordlePalette.setColor(QPalette::Highlight, QColor(240, 207, 96)); // Brown highlight
-    wordlePalette.setColor(QPalette::HighlightedText, QColor(255, 255, 255)); // White highlighted text
+    // Custom color palette for warm, professional appearance
+    wordlePalette.setColor(QPalette::Window, QColor(255, 254, 245));    // Warm off-white background
+    wordlePalette.setColor(QPalette::WindowText, QColor(0, 0, 0));      // Black text for contrast
+    wordlePalette.setColor(QPalette::Button, QColor(120, 104, 48));     // Brown button background
+    wordlePalette.setColor(QPalette::ButtonText, QColor(0, 0, 0));      // Black button text
+    wordlePalette.setColor(QPalette::Base, QColor(255, 255, 255));      // White input fields
+    wordlePalette.setColor(QPalette::Text, QColor(0, 0, 0));            // Black input text
+    wordlePalette.setColor(QPalette::Highlight, QColor(120, 104, 48));  // Brown selection highlight
+    wordlePalette.setColor(QPalette::HighlightedText, QColor(255, 255, 255)); // White selected text
 
     setPalette(wordlePalette);
 
-    // Updated fonts - try different Charter variations
+    // Title font: Charter Roman with fallbacks for cross-platform compatibility
     titleFont.setFamily("Charter");
     if (titleFont.family() != "Charter") {
-        // Fallback options for Charter
         QStringList charterFonts = {"Charter BT", "Bitstream Charter", "Charter Roman", "Times", "Times New Roman"};
         for (const QString &fontName : charterFonts) {
             titleFont.setFamily(fontName);
@@ -67,10 +125,12 @@ void MainWindow::setupWordleStyle()
     titleFont.setPointSize(36);
     titleFont.setBold(true);
 
+    // Button font: Bold Arial for clear readability
     buttonFont.setFamily("Arial");
     buttonFont.setPointSize(16);
     buttonFont.setBold(true);
 
+    // Text font: Regular Arial for form fields and labels
     textFont.setFamily("Arial");
     textFont.setPointSize(12);
 }
@@ -216,6 +276,43 @@ void MainWindow::createCreateDialog()
         "}"
     );
     createLayout->addWidget(descriptionEdit);
+
+    // Alphabet selection
+    QLabel *alphabetLabel = new QLabel("Alfabeto:", createDialog);
+    alphabetLabel->setFont(textFont);
+    alphabetLabel->setStyleSheet("color: #000000; font-weight: bold;");
+    createLayout->addWidget(alphabetLabel);
+
+    selectAlphabetButton = new QPushButton("Seleccionar Alfabeto", createDialog);
+    selectAlphabetButton->setFont(buttonFont);
+    selectAlphabetButton->setMinimumHeight(40);
+    selectAlphabetButton->setStyleSheet(
+        "QPushButton {"
+        "    background-color: rgb(100, 150, 200);"
+        "    color: white;"
+        "    border: 1px solid #000000;"
+        "    border-radius: 4px;"
+        "    font-weight: bold;"
+        "    padding: 8px;"
+        "}"
+        "QPushButton:hover {"
+        "    background-color: rgb(80, 130, 180);"
+        "}"
+    );
+    connect(selectAlphabetButton, &QPushButton::clicked, this, &MainWindow::onSelectAlphabet);
+    createLayout->addWidget(selectAlphabetButton);
+
+    selectedAlphabetLabel = new QLabel("(ningún alfabeto seleccionado)", createDialog);
+    selectedAlphabetLabel->setFont(QFont("Arial", 10));
+    selectedAlphabetLabel->setStyleSheet(
+        "color: #666666; "
+        "background-color: #f0f0f0; "
+        "padding: 8px; "
+        "border: 1px solid #cccccc; "
+        "border-radius: 4px;"
+    );
+    selectedAlphabetLabel->setWordWrap(true);
+    createLayout->addWidget(selectedAlphabetLabel);
     
     // Button layout
     createButtonLayout = new QHBoxLayout();
@@ -360,13 +457,49 @@ void MainWindow::createSelectDialog()
 
 void MainWindow::onCreateAutomaton()
 {
-    createDialog->show();
-    automatonNameEdit->setFocus();
+    alphabetSelector->clearSelection();
+    alphabetSelector->show();
 }
 
 void MainWindow::onSelectAutomaton()
 {
     selectDialog->show();
+}
+
+void MainWindow::onSelectAlphabet()
+{
+    alphabetSelector->clearSelection();
+
+    if (alphabetSelector->exec() == QDialog::Accepted) {
+        selectedAlphabet = alphabetSelector->getSelectedAlphabet();
+
+        // Update the display label
+        if (selectedAlphabet.empty()) {
+            selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
+            selectedAlphabetLabel->setStyleSheet(
+                "color: #666666; "
+                "background-color: #f0f0f0; "
+                "padding: 8px; "
+                "border: 1px solid #cccccc; "
+                "border-radius: 4px;"
+            );
+        } else {
+            QStringList charList;
+            for (char ch : selectedAlphabet) {
+                charList << QString(ch);
+            }
+
+            QString displayText = "Alfabeto: {" + charList.join(", ") + "}";
+            selectedAlphabetLabel->setText(displayText);
+            selectedAlphabetLabel->setStyleSheet(
+                "color: #000000; "
+                "background-color: #e6f3ff; "
+                "padding: 8px; "
+                "border: 1px solid #0066cc; "
+                "border-radius: 4px;"
+            );
+        }
+    }
 }
 
 void MainWindow::onCreateNewAutomaton()
@@ -377,12 +510,34 @@ void MainWindow::onCreateNewAutomaton()
         return;
     }
 
+    if (selectedAlphabet.empty()) {
+        QMessageBox::warning(this, "Advertencia", "Por favor seleccione un alfabeto para el autómata.");
+        return;
+    }
+
+    // Create alphabet string for display
+    QStringList charList;
+    for (char ch : selectedAlphabet) {
+        charList << QString(ch);
+    }
+    QString alphabetStr = "{" + charList.join(", ") + "}";
+
     QMessageBox::information(this, "Éxito",
-        QString("¡Autómata '%1' creado exitosamente!\n\nIntegración con backend pendiente.").arg(name));
+        QString("¡Autómata '%1' creado exitosamente!\n\nAlfabeto: %2\n\nIntegración con backend pendiente.")
+        .arg(name).arg(alphabetStr));
 
     // Clear the form
     automatonNameEdit->clear();
     descriptionEdit->clear();
+    selectedAlphabet.clear();
+    selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
+    selectedAlphabetLabel->setStyleSheet(
+        "color: #666666; "
+        "background-color: #f0f0f0; "
+        "padding: 8px; "
+        "border: 1px solid #cccccc; "
+        "border-radius: 4px;"
+    );
     createDialog->hide();
 }
 
@@ -390,6 +545,15 @@ void MainWindow::onCancelCreate()
 {
     automatonNameEdit->clear();
     descriptionEdit->clear();
+    selectedAlphabet.clear();
+    selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
+    selectedAlphabetLabel->setStyleSheet(
+        "color: #666666; "
+        "background-color: #f0f0f0; "
+        "padding: 8px; "
+        "border: 1px solid #cccccc; "
+        "border-radius: 4px;"
+    );
     createDialog->hide();
 }
 
@@ -398,9 +562,28 @@ void MainWindow::onCancelSelect()
     selectDialog->hide();
 }
 
+/**
+ * @brief Set up hover animations for buttons
+ * @param button The QPushButton to apply animations to
+ *
+ * Creates a custom event filter that adds cute hover effects to buttons:
+ * - Growth: Button scales up by 20x10 pixels when hovered
+ * - Shake: Continuous smooth horizontal oscillation (±3px) while hovering
+ * - Smooth transitions: 800ms animation cycle with infinite loop
+ * - Return animation: Smooth scale-down when hover ends
+ *
+ * The animation system uses QPropertyAnimation with geometry manipulation
+ * for precise control over size and position changes.
+ */
 void MainWindow::setupButtonAnimation(QPushButton* button)
 {
-    // Create a custom event filter class to handle hover events
+    /**
+     * @class AnimatedButton
+     * @brief Custom event filter for button hover animations
+     *
+     * This inner class handles all hover-related animations by filtering
+     * mouse enter/leave events and applying smooth property animations.
+     */
     class AnimatedButton : public QObject
     {
     public:
