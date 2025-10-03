@@ -14,7 +14,7 @@ void Transition::addTransition(const std::string &from, char symbol, const std::
     delta[{from, symbol}].push_back(to);
 }
 
-std::vector<std::string> Transition::getNextStates(const std::string &from, char symbol) const {
+std::vector<std::string> Transition::       getNextStates(const std::string &from, char symbol) const {
     // Look up the transition in the hash map
     auto it = delta.find({from, symbol});
     
