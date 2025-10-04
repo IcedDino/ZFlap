@@ -44,6 +44,7 @@
 #include <QParallelAnimationGroup>
 #include <QEasingCurve>
 #include "AlphabetSelector.h"
+#include <set>
 
 /**
  * @class MainWindow
@@ -60,6 +61,8 @@
  * smooth animations and a clean layout that guides users through the
  * automaton management workflow.
  */
+class AutomatonEditor;
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -103,7 +106,7 @@ private:
     void createSelectDialog();
     /** @brief Add hover animations (grow + shake) to button */
     void setupButtonAnimation(QPushButton* button);
-    
+
     // Main UI components
     QWidget *centralWidget;              ///< Central widget container
     QVBoxLayout *mainLayout;             ///< Main vertical layout
@@ -125,7 +128,6 @@ private:
 
     // Alphabet Selector
     AlphabetSelector *alphabetSelector;  ///< Alphabet selection dialog
-    std::vector<char> selectedAlphabet;  ///< Currently selected alphabet
 
     // Select Automaton Dialog components
     QDialog *selectDialog;               ///< Modal dialog for selecting automata
@@ -140,7 +142,13 @@ private:
     QPalette wordlePalette;              ///< Custom color palette (RGB 255,254,245 bg)
     QFont titleFont;                     ///< Charter Roman font for title
     QFont buttonFont;                    ///< Arial font for buttons
-    QFont textFont;                      ///< Arial font for regular text
+    QFont textFont;
+
+    //AutomatonEditor
+    AutomatonEditor *automatonEditor; // Add this line
+    std::set<char> selectedAlphabet; // <-- 2. CHANGE THIS LINE'S TYPE
+
+///< Arial font for regular text
 };
 
 #endif // MAINWINDOW_H

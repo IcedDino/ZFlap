@@ -12,7 +12,7 @@
  * - Modal dialogs for automaton creation and selection
  * - Spanish localization throughout the interface
  * - Responsive design with Charter Roman typography
- * - Custom color scheme (RGB 120,104,48 for buttons, RGB 255,254,245 for background)
+ * - Custom color scheme (RGB 120,104,48 for buttons, RGB 255,254,245 for the background)
  *
  * Animation System:
  * The button animations use a custom event filter system to detect hover events
@@ -28,6 +28,9 @@
 #include <QScreen>
 #include <QMessageBox>
 #include <QSizePolicy>
+#include "AutomatonEditor.h"
+#include <QInputDialog> // Add this include at the top of MainWindow.cpp
+
 
 /**
  * @brief MainWindow constructor
@@ -63,24 +66,24 @@ MainWindow::~MainWindow()
  * @brief Set up basic window properties and layout
  *
  * Configures the central widget, main layout, window size, and position.
- * Centers the window on the screen and sets a fixed size for consistent appearance.
+ * Centers the window on the screen and sets a fixed size for a consistent appearance.
  */
 void MainWindow::setupUI()
 {
     centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
-    
+
     mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setSpacing(30);
     mainLayout->setContentsMargins(40, 40, 40, 40);
-    
+
     // Center the window
     QScreen *screen = QApplication::primaryScreen();
     QRect screenGeometry = screen->availableGeometry();
     int x = (screenGeometry.width() - 600) / 2;
     int y = (screenGeometry.height() - 400) / 2;
     setGeometry(x, y, 600, 400);
-    
+
     setWindowTitle("ZFlap - Automaton Manager");
     setFixedSize(600, 400);
 }
@@ -88,8 +91,8 @@ void MainWindow::setupUI()
 /**
  * @brief Configure application color palette and fonts
  *
- * Sets up the visual styling for the entire application including:
- * - Custom color palette with warm off-white background (RGB 255,254,245)
+ * Sets up the visual styling for the entire application including
+ * - Custom color palette with a warm off-white background (RGB 255,254,245)
  * - Brown button colors (RGB 120,104,48) with proper contrast
  * - Charter Roman font for the main title with fallback options
  * - Arial fonts for buttons and regular text
@@ -99,7 +102,7 @@ void MainWindow::setupUI()
  */
 void MainWindow::setupWordleStyle()
 {
-    // Custom color palette for warm, professional appearance
+    // Custom color palette for a warm, professional appearance
     wordlePalette.setColor(QPalette::Window, QColor(255, 254, 245));    // Warm off-white background
     wordlePalette.setColor(QPalette::WindowText, QColor(0, 0, 0));      // Black text for contrast
     wordlePalette.setColor(QPalette::Button, QColor(120, 104, 48));     // Brown button background
@@ -153,7 +156,7 @@ void MainWindow::createMainMenu()
     titleLabel->setStyleSheet("color: #000000; margin-bottom: 40px;");
     mainLayout->addWidget(titleLabel);
 
-    // Create horizontal layout for buttons
+    // Create a horizontal layout for buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     buttonLayout->setSpacing(40);
 
@@ -234,7 +237,7 @@ void MainWindow::createCreateDialog()
     createTitleLabel->setAlignment(Qt::AlignCenter);
     createTitleLabel->setStyleSheet("color: #000000; margin-bottom: 20px;");
     createLayout->addWidget(createTitleLabel);
-    
+
     // Name input
     QLabel *nameLabel = new QLabel("Nombre del Autómata:", createDialog);
     nameLabel->setFont(textFont);
@@ -261,7 +264,7 @@ void MainWindow::createCreateDialog()
     descLabel->setFont(textFont);
     descLabel->setStyleSheet("color: #000000; font-weight: bold;");
     createLayout->addWidget(descLabel);
-    
+
     descriptionEdit = new QTextEdit(createDialog);
     descriptionEdit->setFont(textFont);
     descriptionEdit->setMinimumHeight(100);
@@ -313,11 +316,11 @@ void MainWindow::createCreateDialog()
     );
     selectedAlphabetLabel->setWordWrap(true);
     createLayout->addWidget(selectedAlphabetLabel);
-    
+
     // Button layout
     createButtonLayout = new QHBoxLayout();
     createButtonLayout->setSpacing(20);
-    
+
     createConfirmButton = new QPushButton("CREAR", createDialog);
     createConfirmButton->setFont(buttonFont);
     createConfirmButton->setMinimumHeight(50);
@@ -355,7 +358,7 @@ void MainWindow::createCreateDialog()
     );
     connect(createCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelCreate);
     createButtonLayout->addWidget(createCancelButton);
-    
+
     createLayout->addLayout(createButtonLayout);
 }
 
@@ -376,7 +379,7 @@ void MainWindow::createSelectDialog()
     selectTitleLabel->setAlignment(Qt::AlignCenter);
     selectTitleLabel->setStyleSheet("color: #000000; margin-bottom: 20px;");
     selectLayout->addWidget(selectTitleLabel);
-    
+
     // Automaton list
     automatonList = new QListWidget(selectDialog);
     automatonList->setFont(textFont);
@@ -401,19 +404,19 @@ void MainWindow::createSelectDialog()
         "    background-color: #F0F0F0;"
         "}"
     );
-    
+
     // Add some sample automatons for demonstration
     automatonList->addItem("Sample DFA - Even Length Strings");
     automatonList->addItem("Sample NFA - Contains 'ab'");
     automatonList->addItem("Sample DFA - Binary Numbers");
     automatonList->addItem("Sample NFA - Ends with '01'");
-    
+
     selectLayout->addWidget(automatonList);
-    
+
     // Button layout
     selectButtonLayout = new QHBoxLayout();
     selectButtonLayout->setSpacing(20);
-    
+
     selectConfirmButton = new QPushButton("SELECCIONAR", selectDialog);
     selectConfirmButton->setFont(buttonFont);
     selectConfirmButton->setMinimumHeight(50);
@@ -451,14 +454,41 @@ void MainWindow::createSelectDialog()
     );
     connect(selectCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelSelect);
     selectButtonLayout->addWidget(selectCancelButton);
-    
+
     selectLayout->addLayout(selectButtonLayout);
 }
 
 void MainWindow::onCreateAutomaton()
 {
     alphabetSelector->clearSelection();
-    alphabetSelector->show();
+
+    // Use exec() to open the dialog and wait for the user to finish.
+    if (alphabetSelector->exec() == QDialog::Accepted) {
+        // This code only runs if the user clicks "CONFIRMAR"
+
+        // 1. Get the selected alphabet (now as a std::set)
+        std::set<char> alphabet = alphabetSelector->getSelectedAlphabet();
+
+        // 2. Ask the user for the automaton's name
+        bool ok;
+        QString name = QInputDialog::getText(this, "Nombre del Autómata",
+                                             "Ingrese un nombre para el nuevo autómata:", QLineEdit::Normal,
+                                             "", &ok);
+
+        if (ok && !name.isEmpty()) {
+            // 3. If we have a valid name, create and show the editor
+            automatonEditor = new AutomatonEditor();
+            automatonEditor->loadAutomaton(name, alphabet);
+            automatonEditor->resize(1024, 768);
+            automatonEditor->show();
+
+            // 4. Hide the main menu
+            this->hide();
+        } else {
+            // User cancelled the name input or left it empty
+            QMessageBox::warning(this, "Cancelado", "La creación del autómata fue cancelada.");
+        }
+    }
 }
 
 void MainWindow::onSelectAutomaton()
@@ -471,7 +501,8 @@ void MainWindow::onSelectAlphabet()
     alphabetSelector->clearSelection();
 
     if (alphabetSelector->exec() == QDialog::Accepted) {
-        selectedAlphabet = alphabetSelector->getSelectedAlphabet();
+        auto alphabetVector = alphabetSelector->getSelectedAlphabet();
+        selectedAlphabet.insert(alphabetVector.begin(), alphabetVector.end());
 
         // Update the display label
         if (selectedAlphabet.empty()) {
@@ -515,18 +546,24 @@ void MainWindow::onCreateNewAutomaton()
         return;
     }
 
-    // Create alphabet string for display
-    QStringList charList;
-    for (char ch : selectedAlphabet) {
-        charList << QString(ch);
-    }
-    QString alphabetStr = "{" + charList.join(", ") + "}";
+    // --- NEW LOGIC STARTS HERE ---
 
-    QMessageBox::information(this, "Éxito",
-        QString("¡Autómata '%1' creado exitosamente!\n\nAlfabeto: %2\n\nIntegración con backend pendiente.")
-        .arg(name).arg(alphabetStr));
+    // 1. Create an instance of the editor
+    automatonEditor = new AutomatonEditor();
 
-    // Clear the form
+    // 2. Load the automaton's data (name and alphabet) into the editor
+    automatonEditor->loadAutomaton(name, selectedAlphabet);
+
+    // 3. Set a default size and show the editor window
+    automatonEditor->resize(1024, 768);
+    automatonEditor->show();
+
+    // 4. Hide the main menu window
+    this->hide();
+
+    // --- END OF NEW LOGIC ---
+
+    // Clear the form and hide the creation dialog
     automatonNameEdit->clear();
     descriptionEdit->clear();
     selectedAlphabet.clear();
@@ -569,7 +606,7 @@ void MainWindow::onCancelSelect()
  * Creates a custom event filter that adds cute hover effects to buttons:
  * - Growth: Button scales up by 20x10 pixels when hovered
  * - Shake: Continuous smooth horizontal oscillation (±3px) while hovering
- * - Smooth transitions: 800ms animation cycle with infinite loop
+ * - Smooth transitions: 800 ms animation cycle with infinite loop
  * - Return animation: Smooth scale-down when hover ends
  *
  * The animation system uses QPropertyAnimation with geometry manipulation
@@ -622,7 +659,7 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
             isHovering = true;
             originalGeometry = button->geometry();
 
-            // Scale up the button using stylesheet
+            // Scale up the button using the stylesheet
             QString currentStyle = button->styleSheet();
             QString newStyle = currentStyle + " QPushButton { transform: scale(1.1); }";
             button->setStyleSheet(newStyle);
@@ -631,7 +668,7 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
             QRect scaledGeometry = originalGeometry.adjusted(-10, -5, 10, 5);
             button->setGeometry(scaledGeometry);
 
-            // Create smooth shake with more keyframes for smoother motion
+            // Create a smooth shake with more keyframes for smoother motion
             QRect shakeLeft = scaledGeometry.adjusted(-3, 0, -3, 0);
             QRect shakeRight = scaledGeometry.adjusted(3, 0, 3, 0);
 
@@ -658,7 +695,7 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
             currentStyle.remove(" QPushButton { transform: scale(1.1); }");
             button->setStyleSheet(currentStyle);
 
-            // Return to original size smoothly
+            // Return to the original size smoothly
             QPropertyAnimation* returnAnimation = new QPropertyAnimation(button, "geometry", this);
             returnAnimation->setDuration(150);
             returnAnimation->setEasingCurve(QEasingCurve::OutCubic);

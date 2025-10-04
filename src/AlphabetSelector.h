@@ -14,6 +14,7 @@
 #include <QFont>
 #include <QPalette>
 #include "Alfabeto.h"
+#include <set>
 
 class AlphabetSelector : public QDialog
 {
@@ -22,8 +23,8 @@ class AlphabetSelector : public QDialog
 public:
     explicit AlphabetSelector(QWidget *parent = nullptr);
     ~AlphabetSelector();
-    
-    std::vector<char> getSelectedAlphabet() const;
+
+    std::set<char> getSelectedAlphabet() const;
     void clearSelection();
 
 private slots:

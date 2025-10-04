@@ -569,17 +569,10 @@ void AlphabetSelector::updateSelectedDisplay()
     }
 }
 
-std::vector<char> AlphabetSelector::getSelectedAlphabet() const
+std::set<char> AlphabetSelector::getSelectedAlphabet() const
 {
-    std::vector<char> alphabet;
-    QList<char> sortedChars = selectedChars.values();
-    std::sort(sortedChars.begin(), sortedChars.end());
-
-    for (char ch : sortedChars) {
-        alphabet.push_back(ch);
-    }
-
-    return alphabet;
+    // QSet is already compatible with std::set, so we can convert directly.
+    return std::set<char>(selectedChars.begin(), selectedChars.end());
 }
 
 void AlphabetSelector::clearSelection()
