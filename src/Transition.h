@@ -79,6 +79,8 @@ public:
      * @note If the same transition is added multiple times, it will be stored
      * multiple times in the destination vector.
      */
+    void clear();
+
     void addTransition(const std::string &from, char symbol, const std::string &to);
     
     /**

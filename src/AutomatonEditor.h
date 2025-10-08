@@ -2,7 +2,7 @@
  * @file AutomatonEditor.h
  * @brief Header for the AutomatonEditor class, a graphical automaton editor widget.
  * @author ZFlap Project
- * @version 1.1.0
+ * @version 1.2.0
  * @date 2024
  */
 
@@ -24,11 +24,15 @@
 #include "Transition.h"
 #include <set>
 #include <map>
+#include <QTextEdit>
+#include <QSpinBox>
+#include "validacion_cadenas.h"
 
 
 // Forward declaration
 class StateItem;
 class TransitionItem;
+class QTimer; // Forward declare QTimer
 
 /**
  * @class EditorView
@@ -72,6 +76,7 @@ public:
     void loadAutomaton(const QString& name, const std::set<char>& alphabet);
 
 private slots:
+    // --- Existing Slots ---
     void onAddStateClicked();
     void onLinkToolClicked();
     void onStateSelectedForTransition(StateItem* state);
@@ -80,51 +85,83 @@ private slots:
     void onSetInitialState();
     void onToggleFinalState();
 
+    // --- Visual Validation Slots ---
+    void onValidateToolClicked();
+    void onPlayValidation();
+    void onPauseValidation();
+    void onNextStepValidation();
+    void onClearValidation();
+
+    // ADDED: Slots for new backend functionality
+    void onInstantValidateClicked();
+    void onGenerateStringsClicked();
+    void onGenerateToolClicked();
 
 private:
     void setupUI();
     void resetEditorState();
     void applyStyles();
     StateItem* getSelectedState();
+    void unhighlightAllStates();
 
+    void rebuildTransitionHandler();
 
-    // Main layout
+    // ADDED: Helper functions to gather automaton data for backend calls
+    std::set<std::string> getFinalStates() const;
+    std::vector<char> getAlphabetVector() const;
+
+    // --- Existing UI Members ---
     QVBoxLayout *mainLayout;
-
-    // Graphics View & Scene
     EditorView *graphicsView;
     QGraphicsScene *scene;
-
-    // Toolbar
     QHBoxLayout *toolbarLayout;
     QGroupBox *toolsGroup;
     QPushButton *addStateButton;
     QPushButton *linkButton;
     QPushButton *setInitialButton;
     QPushButton *toggleFinalButton;
+    QPushButton *validateChainButton;
+    QPushButton *generatePanelButton;
 
+    // --- Validation Sidebar ---
+    QGroupBox *validationBox;
+    QLineEdit *chainInput;
+    QPushButton *playButton; // For visualizer
+    QPushButton *pauseButton;
+    QPushButton *nextStepButton;
+    QPushButton *clearButton;
+    // ADDED: Button for instant backend validation
+    QPushButton *instantValidateButton;
+    QLabel *validationStatusLabel;
 
-    // Sidebar for Transition Editing
+    // --- Transition Sidebar ---
     QGroupBox *transitionBox;
     QLineEdit *transitionSymbolEdit;
     QLabel *fromStateLabel;
     QLabel *toStateLabel;
     QPushButton *updateTransitionButton;
 
+    // ADDED: New sidebar for generating strings
+    QGroupBox *generationBox;
+    QSpinBox *maxLengthSpinBox;
+    QPushButton *generateButton;
+    QTextEdit *resultsTextEdit;
 
-    // Automaton Data
+    // --- Automaton Data & State ---
     Transition transitionHandler;
     std::set<char> currentAlphabet;
     QString automatonName;
     int stateCounter;
     StateItem* initialState;
     std::map<QString, StateItem*> stateItems;
-
-    // Editor state
     enum Tool { SELECT, ADD_TRANSITION };
     Tool currentTool;
     StateItem* startTransitionState;
     TransitionItem* selectedTransitionItem;
+    QTimer *validationTimer;
+    std::vector<StateItem*> currentValidationStates;
+    int validationStep;
+    QString validationChain;
 };
 
 /**
@@ -140,6 +177,8 @@ public:
     void setIsFinal(bool final);
     bool isFinal() const;
     void setIsInitial(bool initial);
+    bool isInitial() const;
+    void highlight(bool on);
 
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
@@ -148,6 +187,9 @@ private:
     QString stateName;
     QGraphicsTextItem *label;
     bool isFinalState;
+    bool isInitialState;
+    // ADDED: Declaration for the final state indicator to fix the memory leak.
+    QGraphicsEllipseItem* finalIndicator;
 };
 
 /**
@@ -164,6 +206,8 @@ public:
     void setSymbol(const QString& symbol);
     QString getSymbol() const;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+    // ADDED: Declaration for the new geometry update method.
+    void updatePosition();
 
 signals:
     void itemSelected(TransitionItem* item);

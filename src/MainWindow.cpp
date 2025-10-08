@@ -710,3 +710,4 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
     AnimatedButton* animatedButton = new AnimatedButton(button);
     button->installEventFilter(animatedButton);
 }
+

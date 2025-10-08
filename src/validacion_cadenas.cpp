@@ -1,6 +1,7 @@
-#include "Validacion_cadena.h"
+#include "validacion_cadenas.h"
 #include <queue>
 #include <map>
+#include <set>
 
 using namespace std;
 
@@ -95,8 +96,7 @@ bool esAceptada(const Transition &t,
  * @return vector<string> Vector con todas las cadenas aceptadas
  */
 vector<string> generarCadenasAceptadas(const Transition &t,
-                                       const string &estadoInicial,
-                                       const set<string> &estadosFinales,
+                                       const string &estadoInicial,const set<string> &estadosFinales,
                                        const vector<char> &alfabeto,
                                        int longitudMaxima) {
     vector<string> cadenasAceptadas;
@@ -161,7 +161,7 @@ vector<string> generarCadenasConLimite(const Transition &t,
                                        const set<string> &estadosFinales,
                                        const vector<char> &alfabeto,
                                        int longitudMaxima,
-                                       int limiteCiclos = 2) {
+                                       int limiteCiclos) {
     vector<string> cadenasAceptadas;
 
     // Estructura: (estado, cadena, mapa de visitas por estado)

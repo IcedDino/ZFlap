@@ -14,6 +14,10 @@ add_library(zflap_lib
         src/Transition.cpp
         src/MainWindow.cpp
         src/MainWindow.h
+        src/Alfabeto.cpp
+        src/AlphabetSelector.cpp
+        src/AlphabetSelector.h
+        src/validacion_cadenas.cpp
 )
 
 target_include_directories(zflap_lib PUBLIC src)
@@ -34,6 +38,7 @@ if(NOT GTest_FOUND)
     message(FATAL_ERROR "GoogleTest is required")
 endif()
 
+#-------------- Transition test ----------------------------
 add_executable(test_transition test/test_transition.cpp)
 target_link_libraries(test_transition PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
 
@@ -43,6 +48,28 @@ else()
     target_compile_options(test_transition PRIVATE -Wall -Wextra -pedantic)
 endif()
 
+#--------------- Alfabeto test ------------------------------
+add_executable(test_alfabeto test/test_alfabeto.cpp
+        test/test_validacion_cadenas.cpp)
+target_link_libraries(test_alfabeto PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
+
+if(MSVC)
+    target_compile_options(test_alfabeto PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(test_alfabeto PRIVATE -Wall -Wextra -pedantic)
+endif()
+
+#--------------- Validacion test ------------------------------
+add_executable(test_validacion_cadenas test/test_validacion_cadenas.cpp
+        test/test_validacion_cadenas.cpp)
+target_link_libraries(test_validacion_cadenas PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
+
+if(MSVC)
+    target_compile_options(test_validacion_cadenas PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(test_validacion_cadenas PRIVATE -Wall -Wextra -pedantic)
+endif()
+
 # ---------------- Qt ----------------
 # CMake will look in standard locations, vcpkg, or Homebrew automatically
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
@@ -50,7 +77,11 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 # Link Qt to the library since MainWindow uses Qt
 target_link_libraries(zflap_lib PUBLIC Qt6::Widgets)
 
-add_executable(zflap src/main.cpp)
+add_executable(zflap src/main.cpp
+        src/FlowLayout.h
+        src/AutomatonEditor.h
+        src/AutomatonEditor.cpp
+        src/validacion_cadenas.h)
 target_link_libraries(zflap PRIVATE zflap_lib Qt6::Widgets)
 
 # ---------------- Doxygen ----------------
