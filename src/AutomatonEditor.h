@@ -61,6 +61,12 @@ class AutomatonEditor : public QWidget
 {
     Q_OBJECT
 
+    QPushButton *saveButton; // botón de guardar
+
+private slots:
+    void onSaveAutomatonClicked();
+
+
 public:
     explicit AutomatonEditor(QWidget *parent = nullptr);
     void loadAutomaton(const QString& name, const std::set<char>& alphabet);

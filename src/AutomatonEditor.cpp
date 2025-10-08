@@ -13,6 +13,8 @@
 #include <QDebug>
 #include <cmath>
 #include <QToolTip>
+#include <QFileDialog>
+#include <QTextStream>
 
 //================================================================================
 // EditorView Implementation
@@ -200,16 +202,24 @@ void AutomatonEditor::setupUI() {
     toggleFinalButton->setToolTip("Alternar Estado Final");
     toggleFinalButton->setFixedSize(40, 40);
 
+    saveButton = new QPushButton("💾");
+    saveButton->setToolTip("Guardar autómata (.zflap)");
+    saveButton->setFixedSize(40, 40);
+
+
     toolbarLayout->addWidget(addStateButton);
     toolbarLayout->addWidget(linkButton);
     toolbarLayout->addWidget(setInitialButton);
     toolbarLayout->addWidget(toggleFinalButton);
+    toolbarLayout->addWidget(saveButton);
     toolbarLayout->addStretch();
 
     connect(addStateButton, &QPushButton::clicked, this, &AutomatonEditor::onAddStateClicked);
     connect(linkButton, &QPushButton::clicked, this, &AutomatonEditor::onLinkToolClicked);
     connect(setInitialButton, &QPushButton::clicked, this, &AutomatonEditor::onSetInitialState);
     connect(toggleFinalButton, &QPushButton::clicked, this, &AutomatonEditor::onToggleFinalState);
+    connect(saveButton, &QPushButton::clicked, this, &AutomatonEditor::onSaveAutomatonClicked);
+
 
     transitionBox = new QGroupBox("Editar Transición");
     transitionBox->setObjectName("transitionBox");
@@ -401,4 +411,54 @@ void AutomatonEditor::onToggleFinalState()
         return;
     }
     selected->setIsFinal(!selected->isFinal());
+}
+
+void AutomatonEditor::onSaveAutomatonClicked() {
+    if (!initialState) {
+        QMessageBox::warning(this, "Error", "Debe definir un estado inicial antes de guardar.");
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(this, "Guardar autómata", "", "ZFlap Automata (*.zflap)");
+    if (fileName.isEmpty()) return;
+
+    if (!fileName.endsWith(".zflap")) {
+        fileName += ".zflap";
+    }
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Error", "No se pudo abrir el archivo para escritura.");
+        return;
+    }
+
+    QTextStream out(&file);
+
+    // Guardar información básica
+    out << "Automaton: " << automatonName << "\n";
+    out << "Alphabet: ";
+    for (char c : currentAlphabet) out << c << " ";
+    out << "\n";
+
+    out << "Initial: " << initialState->getName() << "\n";
+
+    out << "Finals: ";
+    for (const auto &[name, state] : stateItems)
+        if (state->isFinal()) out << QString::fromStdString(name.toStdString()) << " ";
+    out << "\n";
+
+    // Guardar transiciones
+    out << "Transitions:\n";
+    for (auto *item : scene->items()) {
+        auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
+        if (!transition) continue;
+
+        QString from = transition->getStartItem()->getName();
+        QString to = transition->getEndItem()->getName();
+        QString symbol = transition->getSymbol();
+        out << from << " --" << symbol << "--> " << to << "\n";
+    }
+
+    file.close();
+    QMessageBox::information(this, "Guardado", "El autómata se guardó correctamente en:\n" + fileName);
 }
