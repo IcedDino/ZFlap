@@ -21,6 +21,7 @@
 #include <QTextEdit>
 #include <QSpinBox>
 #include <Transition.h>
+#include <QSettings>
 
 //================================================================================
 // EditorView Implementation
@@ -829,4 +830,14 @@ void AutomatonEditor::onSaveAutomatonClicked() {
 
     file.close();
     QMessageBox::information(this, "Guardado", "El autómata se guardó correctamente en:\n" + fileName);
+
+    // Update recent files list (store last 10 paths)
+    QSettings settings("ZFlap", "ZFlap");
+    QStringList recent = settings.value("recentAutomata").toStringList();
+    recent.removeAll(fileName); // avoid duplicates
+    recent.prepend(fileName);
+    while (recent.size() > 10) {
+        recent.removeLast();
+    }
+    settings.setValue("recentAutomata", recent);
 }

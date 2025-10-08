@@ -30,6 +30,8 @@
 #include <QSizePolicy>
 #include "AutomatonEditor.h"
 #include <QInputDialog> // Add this include at the top of MainWindow.cpp
+#include <QSettings>
+#include <QFileInfo>
 
 
 /**
@@ -405,11 +407,16 @@ void MainWindow::createSelectDialog()
         "}"
     );
 
-    // Add some sample automatons for demonstration
-    automatonList->addItem("Sample DFA - Even Length Strings");
-    automatonList->addItem("Sample NFA - Contains 'ab'");
-    automatonList->addItem("Sample DFA - Binary Numbers");
-    automatonList->addItem("Sample NFA - Ends with '01'");
+    // Populate with recent automata (names only); loading logic handled elsewhere
+    QSettings settings("ZFlap", "ZFlap");
+    QStringList recent = settings.value("recentAutomata").toStringList();
+    automatonList->clear();
+    for (const QString &path : recent) {
+        QFileInfo fi(path);
+        // Display base name without extension
+        QString name = fi.completeBaseName();
+        automatonList->addItem(name);
+    }
 
     selectLayout->addWidget(automatonList);
 
@@ -493,6 +500,17 @@ void MainWindow::onCreateAutomaton()
 
 void MainWindow::onSelectAutomaton()
 {
+    // Refresh recent automata list each time dialog opens
+    if (automatonList) {
+        QSettings settings("ZFlap", "ZFlap");
+        QStringList recent = settings.value("recentAutomata").toStringList();
+        automatonList->clear();
+        for (const QString &path : recent) {
+            QFileInfo fi(path);
+            QString name = fi.completeBaseName();
+            automatonList->addItem(name);
+        }
+    }
     selectDialog->show();
 }
 
