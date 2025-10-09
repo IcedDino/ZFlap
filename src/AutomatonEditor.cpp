@@ -25,34 +25,137 @@
 #include <QLineEdit>
 #include <QGraphicsView>
 #include <QMouseEvent>
+#include <QScrollBar>
+#include <QGestureEvent>
+
 
 
 //================================================================================
 // EditorView Implementation
 //================================================================================
 EditorView::EditorView(QGraphicsScene *scene, QWidget *parent)
-    : QGraphicsView(scene, parent) {}
+    : QGraphicsView(scene, parent)
+{
+    setRenderHint(QPainter::Antialiasing);
+    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+    // Enable pinch and pan gestures for trackpad interaction
+    grabGesture(Qt::PinchGesture);
+    grabGesture(Qt::PanGesture);
+    // Hide the scrollbars as panning is handled by gestures and middle-mouse drag.
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+}
+
+bool EditorView::event(QEvent *event)
+{
+    if (event->type() == QEvent::Gesture) {
+        auto* gestureEvent = static_cast<QGestureEvent*>(event);
+        if (auto *pinch = gestureEvent->gesture(Qt::PinchGesture)) {
+            auto *pinchGesture = static_cast<QPinchGesture*>(pinch);
+
+            // Use the incremental scale factor to avoid the "jump" at the start of the gesture.
+            // This provides a smooth zoom relative to the last event.
+            qreal scaleFactor = pinchGesture->scaleFactor();
+
+            // Apply the incremental zoom.
+            scale(scaleFactor, scaleFactor);
+            emit viewTransformed();
+
+            return true;
+        }
+        if (auto *pan = gestureEvent->gesture(Qt::PanGesture)) {
+            auto *panGesture = static_cast<QPanGesture*>(pan);
+            QPointF delta = panGesture->delta();
+            // Translate the view by the delta of the pan gesture
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - static_cast<int>(delta.x()));
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - static_cast<int>(delta.y()));
+            return true;
+        }
+    }
+    return QGraphicsView::event(event);
+}
 
 void EditorView::mousePressEvent(QMouseEvent *event)
 {
-    // Pass the event to the base class to handle item selection/movement
+    if (event->button() == Qt::MiddleButton) {
+        setDragMode(QGraphicsView::ScrollHandDrag);
+        QMouseEvent fakeEvent(QEvent::MouseButtonPress, event->pos(),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QGraphicsView::mousePressEvent(&fakeEvent);
+        return;
+    }
+
+    // For other buttons (e.g., left-click), let the base class handle selection/movement first
     QGraphicsView::mousePressEvent(event);
 
-    QGraphicsItem *clickedItem = itemAt(event->pos());
+    // Then, apply custom logic for state clicks if it was a left-click and no item was selected by base
+    if (event->button() == Qt::LeftButton) {
+        QGraphicsItem *clickedItem = itemAt(event->pos());
 
-    if (!clickedItem) {
-        // If clicking on an empty space, deselect everything
-        scene()->clearSelection();
-    } else {
-        // Allow clicking on a state's label (child item) to select the state
-        auto *state = qgraphicsitem_cast<StateItem*>(clickedItem);
-        if (!state && clickedItem->parentItem()) {
-            state = qgraphicsitem_cast<StateItem*>(clickedItem->parentItem());
-        }
-        if (state) {
-            emit stateClicked(state);
+        if (!clickedItem) {
+            // If clicking on an empty space, deselect everything
+            scene()->clearSelection();
+            emit backgroundClicked();
+        } else {
+            // If a state's label (child) is clicked, treat it as clicking the state (parent)
+            auto *state = qgraphicsitem_cast<StateItem*>(clickedItem);
+            if (!state && clickedItem->parentItem()) {
+                state = qgraphicsitem_cast<StateItem*>(clickedItem->parentItem());
+            }
+            if (state) {
+                emit stateClicked(state);
+            }
         }
     }
+}
+
+void EditorView::wheelEvent(QWheelEvent *event)
+{
+    // Determine if it's a zoom event (vertical scroll) or pan (horizontal scroll)
+    // Trackpads often send both pixelDelta and angleDelta. pixelDelta is more granular.
+    QPoint numPixels = event->pixelDelta();
+    QPoint numDegrees = event->angleDelta() / 8; // QWheelEvent::angleDelta() reports in eighths of a degree
+
+    if (!numPixels.isNull()) { // Trackpad or high-resolution mouse wheel
+        // Zoom based on vertical pixel delta
+        // For trackpads, vertical scroll now pans vertically. Zoom is handled by pinch gesture.
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - numPixels.y());
+
+        // Pan based on horizontal pixel delta (if not zooming)
+        if (numPixels.x() != 0) {
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - numPixels.x());
+        }
+        event->accept();
+
+    } else if (!numDegrees.isNull()) { // Standard mouse wheel
+        // Zoom based on vertical angle delta
+        if (numDegrees.y() != 0) {
+            qreal scaleFactor = 1.0 + (numDegrees.y() > 0 ? 0.1 : -0.1); // Larger step for mouse wheel
+            scale(scaleFactor, scaleFactor);
+            emit viewTransformed();
+            event->accept();
+        }
+        // Pan based on horizontal angle delta (if not zooming)
+        if (numDegrees.x() != 0) {
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - numDegrees.x());
+            event->accept();
+        }
+    } else {
+        // Fallback to default QGraphicsView behavior if no specific handling
+        QGraphicsView::wheelEvent(event);
+    }
+}
+
+void EditorView::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::MiddleButton) {
+        QMouseEvent fakeEvent(QEvent::MouseButtonRelease, event->pos(),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QGraphicsView::mouseReleaseEvent(&fakeEvent);
+        setDragMode(QGraphicsView::NoDrag);
+        return;
+    }
+    QGraphicsView::mouseReleaseEvent(event);
 }
 
 //================================================================================
@@ -133,7 +236,7 @@ TransitionItem::TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* 
     setFlag(QGraphicsItem::ItemIsSelectable);
     setPen(QPen(Qt::black, 2));
     label = new QGraphicsTextItem(transitionSymbol, this);
-    label->setDefaultTextColor(Qt::blue);
+    label->setDefaultTextColor(Qt::black);
 
     // Set an initial position
     updatePosition();
@@ -148,6 +251,41 @@ void TransitionItem::setSymbol(const QString& symbol) {
 }
 
 QString TransitionItem::getSymbol() const { return transitionSymbol; }
+
+// ADDED: Override to define a larger bounding box for the item.
+// This ensures the entire shape, including the wider hitbox and arrowhead, is redrawn correctly.
+QRectF TransitionItem::boundingRect() const
+{
+    qreal extra = (pen().width() + 20) / 2.0; // Add padding around the line
+    return QGraphicsLineItem::boundingRect().adjusted(-extra, -extra, extra, extra)
+           .united(label->boundingRect().translated(label->pos())); // Include label area
+}
+
+// ADDED: Override to define a larger, more clickable shape for the transition.
+QPainterPath TransitionItem::shape() const
+{
+    QPainterPathStroker stroker;
+    // Make the hitbox 15 pixels wide for easy clicking
+    stroker.setWidth(15.0);
+
+    // Create a path from a shortened line to prevent the hitbox from overlapping the states.
+    QLineF currentLine = line();
+    if (currentLine.length() == 0) {
+        return QPainterPath(); // Return an empty path if the line is invalid
+    }
+
+    // Shorten the line by an extra margin (e.g., 10 units) at both ends for the hitbox
+    QLineF hitboxLine = currentLine;
+    hitboxLine.setLength(currentLine.length() - 10.0); // Shorten from the end
+    hitboxLine.translate(currentLine.dx() / currentLine.length() * 5.0, currentLine.dy() / currentLine.length() * 5.0); // Shift it forward
+
+    QPainterPath linePath;
+    linePath.moveTo(hitboxLine.p1());
+    linePath.lineTo(hitboxLine.p2());
+
+    // Return the shape created by stroking the line path
+    return stroker.createStroke(linePath);
+}
 
 // FIXED: Created a dedicated function to update geometry.
 // This separates state modification from the paint() routine.
@@ -205,10 +343,11 @@ void TransitionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
 //================================================================================
 AutomatonEditor::AutomatonEditor(QWidget *parent)
     : QWidget(parent), stateCounter(0), currentTool(SELECT), startTransitionState(nullptr), selectedTransitionItem(nullptr), initialState(nullptr), toolButtonGroup(nullptr),
-      saveButton(nullptr), mainLayout(nullptr), graphicsView(nullptr), scene(nullptr), toolbarLayout(nullptr), toolsGroup(nullptr),
+      saveButton(nullptr), mainLayout(nullptr), contentLayout(nullptr), graphicsView(nullptr), scene(nullptr), toolbarLayout(nullptr), toolsGroup(nullptr),
       addStateButton(nullptr), linkButton(nullptr), setInitialButton(nullptr), toggleFinalButton(nullptr), validateChainButton(nullptr),
       generatePanelButton(nullptr), validationBox(nullptr), chainInput(nullptr), playButton(nullptr), pauseButton(nullptr),
       nextStepButton(nullptr), clearButton(nullptr), instantValidateButton(nullptr), validationStatusLabel(nullptr),
+      resetZoomButton(nullptr),
       transitionBox(nullptr), transitionSymbolEdit(nullptr), fromStateLabel(nullptr), toStateLabel(nullptr),
       updateTransitionButton(nullptr), generationBox(nullptr), maxLengthSpinBox(nullptr), generateButton(nullptr),
       resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr), validationStep(0)
@@ -314,18 +453,26 @@ void AutomatonEditor::keyPressEvent(QKeyEvent *event)
 
 
 void AutomatonEditor::setupUI() {
-    mainLayout = new QVBoxLayout(this);
+    // Change the main layout to arrange the toolbar and content side-by-side.
+    mainLayout = new QHBoxLayout(this);
     scene = new QGraphicsScene(this);
+    // Set a large, fixed scene rectangle to allow "infinite" panning on the canvas.
+    scene->setSceneRect(-5000, -5000, 10000, 10000);
+
     graphicsView = new EditorView(scene, this);
     graphicsView->setRenderHint(QPainter::Antialiasing);
     graphicsView->setCursor(Qt::ArrowCursor);
 
     connect(graphicsView, &EditorView::stateClicked, this, &AutomatonEditor::onStateClicked);
+    connect(graphicsView, &EditorView::backgroundClicked, this, &AutomatonEditor::onBackgroundClicked);
+    connect(graphicsView, &EditorView::viewTransformed, this, &AutomatonEditor::updateResetZoomButtonVisibility);
 
     toolsGroup = new QGroupBox();
     toolsGroup->setObjectName("toolsGroup");
-    toolbarLayout = new QHBoxLayout(toolsGroup);
+    // Change the toolbar layout to stack buttons vertically.
+    toolbarLayout = new QVBoxLayout(toolsGroup);
     toolbarLayout->setSpacing(10);
+    toolsGroup->setFixedWidth(70); // Give the vertical toolbar a fixed width.
 
     addStateButton = new QPushButton("+");
     addStateButton->setToolTip("Add State");
@@ -390,6 +537,7 @@ void AutomatonEditor::setupUI() {
     transitionBox = new QGroupBox("Edit Transition");
     transitionBox->setObjectName("transitionBox");
     transitionBox->setVisible(false);
+    transitionBox->setProperty("visibilityChanged", true);
     auto *sidebarLayout = new QVBoxLayout(transitionBox);
     sidebarLayout->setSpacing(10);
     sidebarLayout->setAlignment(Qt::AlignTop);
@@ -413,6 +561,7 @@ void AutomatonEditor::setupUI() {
     validationBox = new QGroupBox("Validate Chain");
     validationBox->setObjectName("validationBox");
     validationBox->setVisible(false);
+    validationBox->setProperty("visibilityChanged", true);
     auto *validationLayout = new QVBoxLayout(validationBox);
     validationLayout->setSpacing(10);
     validationLayout->setAlignment(Qt::AlignTop);
@@ -458,6 +607,7 @@ void AutomatonEditor::setupUI() {
     generationBox = new QGroupBox("Generate Accepted Strings");
     generationBox->setObjectName("generationBox");
     generationBox->setVisible(false); // hidden by default; toggled by toolbar button
+    generationBox->setProperty("visibilityChanged", true);
     auto *generationLayout = new QVBoxLayout(generationBox);
     generationLayout->setSpacing(10);
     generationLayout->setAlignment(Qt::AlignTop);
@@ -487,12 +637,30 @@ void AutomatonEditor::setupUI() {
     sidebarsLayout->addWidget(generationBox); // Toggled via toolbar button
     sidebarsLayout->addStretch();
 
-    auto *contentLayout = new QHBoxLayout();
-    contentLayout->addWidget(graphicsView, 4); // Graphics view takes most space
-    contentLayout->addLayout(sidebarsLayout, 1); // Sidebars take less space
+    contentLayout = new QHBoxLayout();
+    contentLayout->addWidget(graphicsView); // Graphics view takes most space
+    contentLayout->addLayout(sidebarsLayout); // Sidebars take less space
 
-    mainLayout->addWidget(toolsGroup);
+    // Let the editor fill everything initially
+    contentLayout->setStretchFactor(graphicsView, 1);
+    contentLayout->setStretchFactor(sidebarsLayout, 0);
+
+
+    mainLayout->addWidget(toolsGroup); // Add the toolbar to the left.
     mainLayout->addLayout(contentLayout);
+
+    // --- Overlay Widgets ---
+    resetZoomButton = new QPushButton("⛶", graphicsView);
+    resetZoomButton->setToolTip("Reset View");
+    resetZoomButton->setFixedSize(35, 35);
+    resetZoomButton->setStyleSheet(
+        "QPushButton { border-radius: 17px; background-color: rgba(240, 207, 96, 0.8); color: black; font-weight: bold; }"
+        "QPushButton:hover { background-color: rgba(220, 187, 76, 1.0); }"
+    );
+    resetZoomButton->move(10, graphicsView->height() - resetZoomButton->height() - 10);
+    resetZoomButton->setVisible(false);
+
+    connect(resetZoomButton, &QPushButton::clicked, this, &AutomatonEditor::onResetZoomClicked);
 }
 
 void AutomatonEditor::applyStyles()
@@ -577,6 +745,50 @@ void AutomatonEditor::applyStyles()
     this->setStyleSheet(styleSheet);
 }
 
+void AutomatonEditor::adjustSidebarLayout()
+{
+    if (!contentLayout || !graphicsView) return;
+
+    bool sidebarVisible = transitionBox->isVisible() ||
+                          validationBox->isVisible() ||
+                          generationBox->isVisible();
+
+    contentLayout->setStretchFactor(graphicsView, sidebarVisible ? 4 : 1);
+    contentLayout->setStretchFactor(contentLayout->itemAt(1)->layout(), sidebarVisible ? 1 : 0);
+}
+
+void AutomatonEditor::onResetZoomClicked()
+{
+    graphicsView->resetTransform();
+
+    // Also pan the view to center on state q0, if it exists.
+    auto it = stateItems.find("q0");
+    if (it != stateItems.end()) {
+        graphicsView->centerOn(it->second);
+    }
+
+    updateResetZoomButtonVisibility();
+}
+
+void AutomatonEditor::updateResetZoomButtonVisibility()
+{
+    if (!graphicsView || !resetZoomButton) return;
+
+    // The button should be visible if zoom is far from 1.0
+    qreal currentScale = graphicsView->transform().m11();
+    bool show = (currentScale < 0.85 || currentScale > 1.25);
+    resetZoomButton->setVisible(show);
+
+    // Ensure the button stays in the bottom-left corner of the view
+    resetZoomButton->move(10, graphicsView->height() - resetZoomButton->height() - 10);
+    resetZoomButton->raise(); // Keep it on top
+}
+
+void AutomatonEditor::onBackgroundClicked()
+{
+    // If user clicks background, always reset to the default SELECT tool.
+    resetEditorState();
+}
 
 void AutomatonEditor::onAddStateClicked() {
     resetEditorState();
@@ -599,6 +811,7 @@ void AutomatonEditor::onValidateToolClicked()
 {
     bool isChecked = validateChainButton->isChecked();
     validationBox->setVisible(isChecked);
+    adjustSidebarLayout();
     // If unchecking, reset the validation state
     if (!isChecked) onClearValidation();
 }
@@ -606,6 +819,7 @@ void AutomatonEditor::onValidateToolClicked()
 // Toggle handler for generator panel button
 void AutomatonEditor::onGenerateToolClicked() {
     generationBox->setVisible(generatePanelButton->isChecked());
+    adjustSidebarLayout();
 }
 
 void AutomatonEditor::onStateClicked(StateItem* state) {
@@ -620,7 +834,8 @@ void AutomatonEditor::onStateClicked(StateItem* state) {
                     scene->addItem(transition);
                     connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
                 }
-                resetEditorState(); // Reset after creating the transition
+                // Set the end state as the start of the next transition to allow chaining.
+                startTransitionState = endState;
             }
             break;
 
@@ -652,6 +867,7 @@ void AutomatonEditor::onTransitionItemSelected(TransitionItem* item) {
     toStateLabel->setText("<b>To:</b> " + item->getEndItem()->getName());
     transitionSymbolEdit->setText(item->getSymbol());
     transitionBox->setVisible(true);
+    adjustSidebarLayout();
 }
 
 // ADDED: New slot to handle instant validation using the backend function.
@@ -769,6 +985,7 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
     selectedTransitionItem->setSelected(false);
     selectedTransitionItem = nullptr;
     transitionBox->setVisible(false);
+    adjustSidebarLayout();
 }
 
 void AutomatonEditor::deleteState(StateItem* stateToDelete)
@@ -857,6 +1074,7 @@ void AutomatonEditor::resetEditorState() {
     if(transitionBox) transitionBox->setVisible(false);
     if (validationBox) validationBox->setVisible(false);
     if (generationBox) generationBox->setVisible(false);
+    adjustSidebarLayout();
 }
 
 void AutomatonEditor::onClearValidation()
@@ -1020,6 +1238,12 @@ void AutomatonEditor::onSaveAutomatonClicked() {
     if (!fileName.endsWith(".zflap")) {
         fileName += ".zflap";
     }
+
+    // --- ADDED: Update automaton name from the chosen file name ---
+    QFileInfo fileInfo(fileName);
+    automatonName = fileInfo.baseName(); // e.g., "MyAutomaton" from "/path/to/MyAutomaton.zflap"
+    setWindowTitle("Editor - " + automatonName); // Update the window title as well
+    // --- END OF CHANGE ---
 
     QFile file(fileName);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {

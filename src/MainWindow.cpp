@@ -371,6 +371,10 @@ void MainWindow::createSelectDialog()
     selectDialog->setFixedSize(500, 400);
     selectDialog->setModal(true);
 
+    // --- ADDED: Apply consistent background color ---
+    selectDialog->setPalette(wordlePalette);
+    selectDialog->setAutoFillBackground(true);
+
     selectLayout = new QVBoxLayout(selectDialog);
     selectLayout->setSpacing(20);
     selectLayout->setContentsMargins(30, 30, 30, 30);
@@ -387,23 +391,24 @@ void MainWindow::createSelectDialog()
     automatonList->setFont(textFont);
     automatonList->setStyleSheet(
         "QListWidget {"
-        "    background-color: #FFFFFF;"
+        "    background-color: #FFF9E6;" // Light warm background
         "    color: #000000;"
-        "    border: 2px solid #000000;"
-        "    border-radius: 4px;"
+        "    border: 1px solid #B8860B;" // Goldenrod border
+        "    border-radius: 5px;"
         "    padding: 8px;"
         "    font-size: 14px;"
         "}"
         "QListWidget::item {"
         "    padding: 10px;"
-        "    border-bottom: 1px solid #E0E0E0;"
+        "    border-bottom: 1px solid #F0EAD6;" // Lighter separator
         "}"
         "QListWidget::item:selected {"
-        "    background-color: #FFFF00;"
-        "    color: #000000;"
+        "    background-color: #A8781E;" // Darker golden/brown for selected
+        "    color: #FFFFFF;"
         "}"
         "QListWidget::item:hover {"
-        "    background-color: #F0F0F0;"
+        "    background-color: #F0CF60;" // Cream/yellow for hover
+        "    color: #000000;"
         "}"
     );
 
@@ -429,15 +434,15 @@ void MainWindow::createSelectDialog()
     selectConfirmButton->setMinimumHeight(50);
     selectConfirmButton->setStyleSheet(
         "QPushButton {"
-        "    background-color: rgb(240, 207, 96);"
+        "    background-color: #F0CF60;" // cream/yellow
         "    color: #000000;"
         "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
+        "    border-radius: 5px;"
+        "    font-weight: bold;"
         "    padding: 10px;"
         "}"
         "QPushButton:hover {"
-        "    background-color: rgb(240, 207, 96);"
+        "    background-color: #DCBB4C;" // deeper yellow
         "}"
     );
     connect(selectConfirmButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
@@ -448,15 +453,15 @@ void MainWindow::createSelectDialog()
     selectCancelButton->setMinimumHeight(50);
     selectCancelButton->setStyleSheet(
         "QPushButton {"
-        "    background-color: rgb(255, 254, 245);"
+        "    background-color: #B4B4B4;" // neutral gray
         "    color: #000000;"
         "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
+        "    border-radius: 5px;"
+        "    font-weight: bold;"
         "    padding: 10px;"
         "}"
         "QPushButton:hover {"
-        "    background-color: rgb(235, 234, 225);"
+        "    background-color: #A0A0A0;" // darker gray
         "}"
     );
     connect(selectCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelSelect);
@@ -476,26 +481,19 @@ void MainWindow::onCreateAutomaton()
         // 1. Get the selected alphabet (now as a std::set)
         std::set<char> alphabet = alphabetSelector->getSelectedAlphabet();
 
-        // 2. Ask the user for the automaton's name
-        bool ok;
-        QString name = QInputDialog::getText(this, "Nombre del Autómata",
-                                             "Ingrese un nombre para el nuevo autómata:", QLineEdit::Normal,
-                                             "", &ok);
+        // 2. Use a default name. The user will name it upon saving.
+        QString name = "Unsaved Automaton";
 
-        if (ok && !name.isEmpty()) {
-            // 3. If we have a valid name, create and show the editor
-            automatonEditor = new AutomatonEditor();
-            automatonEditor->loadAutomaton(name, alphabet);
-            automatonEditor->resize(1024, 768);
-            automatonEditor->show();
+        // 3. Create and show the editor
+        automatonEditor = new AutomatonEditor();
+        automatonEditor->loadAutomaton(name, alphabet);
+        automatonEditor->resize(1024, 768);
+        automatonEditor->show();
 
-            // 4. Hide the main menu
-            this->hide();
-        } else {
-            // User cancelled the name input or left it empty
-            QMessageBox::warning(this, "Cancelado", "La creación del autómata fue cancelada.");
-        }
+        // 4. Hide the main menu
+        this->hide();
     }
+    // If the user cancels the alphabet selector, nothing happens.
 }
 
 void MainWindow::onSelectAutomaton()
@@ -728,4 +726,3 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
     AnimatedButton* animatedButton = new AnimatedButton(button);
     button->installEventFilter(animatedButton);
 }
-

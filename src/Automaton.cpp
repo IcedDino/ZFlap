@@ -43,7 +43,7 @@ bool Automaton::validarCadena(const string &cadena, int maxLongitud) {
     return aceptadas.count(cadena) > 0;
 }
 
-// ----------- NUEVA FUNCIÓN ---------------
+// ----------- NUEVA FUNCIÓN ---------------t
 void Automaton::guardarAutomata(const string &ruta,
                                 const vector<char> &alfabeto,
                                 const set<string> &estados) const {

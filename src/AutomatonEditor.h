@@ -55,9 +55,15 @@ public:
 
 signals:
     void stateClicked(StateItem *state);
+    void backgroundClicked();
+    void viewTransformed();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    // ADDED: Declarations for zoom and pan event handlers.
+    void wheelEvent(QWheelEvent *event) override;
+    bool event(QEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 };
 
 
@@ -101,11 +107,17 @@ private slots:
     void onGenerateStringsClicked();
     void onGenerateToolClicked();
 
+    // ADDED: Slots for zoom reset button
+    void onBackgroundClicked();
+    void onResetZoomClicked();
+    void updateResetZoomButtonVisibility();
+
 private:
     void setupUI();
     void resetEditorState();
     void applyStyles();
     void deleteState(StateItem* state);
+    void adjustSidebarLayout();
     void deleteTransition(TransitionItem* transition);
     void clearAutomaton();
     StateItem* getSelectedState();
@@ -119,10 +131,11 @@ private:
     std::vector<char> getAlphabetVector() const;
 
     // --- UI Members ---
-    QVBoxLayout *mainLayout;
+    QHBoxLayout *mainLayout; // Changed from QVBoxLayout to QHBoxLayout
+    QHBoxLayout *contentLayout; // Make contentLayout a member
     EditorView *graphicsView;
     QGraphicsScene *scene;
-    QHBoxLayout *toolbarLayout;
+    QVBoxLayout *toolbarLayout; // Changed from QHBoxLayout to QVBoxLayout
     QButtonGroup *toolButtonGroup;
     QGroupBox *toolsGroup;
     QPushButton *addStateButton;
@@ -132,6 +145,7 @@ private:
     QPushButton *saveButton;
     QPushButton *validateChainButton;
     QPushButton *generatePanelButton;
+    QPushButton *resetZoomButton;
 
     // --- Validation Sidebar ---
     QGroupBox *validationBox;
@@ -222,6 +236,10 @@ public:
     void setSymbol(const QString& symbol);
     QString getSymbol() const;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+    // ADDED: Overrides to increase the clickable area of the transition line.
+    QRectF boundingRect() const override;
+    QPainterPath shape() const override;
+
     // ADDED: Declaration for the new geometry update method.
     void updatePosition();
 
