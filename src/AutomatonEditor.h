@@ -105,11 +105,14 @@ private:
     void setupUI();
     void resetEditorState();
     void applyStyles();
+    void deleteState(StateItem* state);
+    void deleteTransition(TransitionItem* transition);
     void clearAutomaton();
     StateItem* getSelectedState();
     void unhighlightAllStates();
 
     void rebuildTransitionHandler();
+    void keyPressEvent(QKeyEvent *event) override;
 
     // ADDED: Helper functions to gather automaton data for backend calls
     std::set<std::string> getFinalStates() const;
@@ -184,6 +187,7 @@ class StateItem : public QObject, public QGraphicsEllipseItem
 {
     Q_OBJECT
 public:
+    void setName(const QString& newName);
     StateItem(const QString& name, QGraphicsItem *parent = nullptr);
     QString getName() const;
     void setIsFinal(bool final);

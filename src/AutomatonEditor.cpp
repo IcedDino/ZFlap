@@ -78,6 +78,13 @@ StateItem::StateItem(const QString& name, QGraphicsItem *parent)
 
 QString StateItem::getName() const { return stateName; }
 
+void StateItem::setName(const QString& newName) {
+    stateName = newName;
+    label->setPlainText(newName);
+    // Recenter the label after changing the text
+    label->setPos(-label->boundingRect().width() / 2, -label->boundingRect().height() / 2);
+}
+
 void StateItem::setIsFinal(bool final) {
     isFinalState = final;
     // FIXED: Simply toggle the visibility of the pre-made indicator.
@@ -207,6 +214,7 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
       resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr), validationStep(0)
 {
     setupUI();
+    setFocusPolicy(Qt::StrongFocus); // Allow the widget to receive key press events
     applyStyles();
 
     validationTimer = new QTimer(this);
@@ -267,6 +275,43 @@ void AutomatonEditor::rebuildTransitionHandler()
         }
     }
 }
+
+void AutomatonEditor::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+        QList<QGraphicsItem*> selectedItems = scene->selectedItems();
+        if (selectedItems.isEmpty()) {
+            return; // Nothing to do
+        }
+
+        // Separate items by type to handle states first
+        StateItem* selectedState = nullptr;
+        TransitionItem* selectedTransition = nullptr;
+
+        for (QGraphicsItem* item : selectedItems) {
+            if (auto* state = qgraphicsitem_cast<StateItem*>(item)) {
+                selectedState = state;
+                break; // Prioritize deleting the state
+            }
+            if (auto* transition = qgraphicsitem_cast<TransitionItem*>(item)) {
+                selectedTransition = transition;
+            }
+        }
+
+        if (selectedState) {
+            deleteState(selectedState);
+        } else if (selectedTransition) {
+            deleteTransition(selectedTransition);
+        }
+
+        // After deletion, rebuild the handler to reflect the changes
+        rebuildTransitionHandler();
+    } else {
+        // Pass other key events to the base class
+        QWidget::keyPressEvent(event);
+    }
+}
+
 
 void AutomatonEditor::setupUI() {
     mainLayout = new QVBoxLayout(this);
@@ -724,6 +769,76 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
     selectedTransitionItem->setSelected(false);
     selectedTransitionItem = nullptr;
     transitionBox->setVisible(false);
+}
+
+void AutomatonEditor::deleteState(StateItem* stateToDelete)
+{
+    if (!stateToDelete) return;
+
+    QString deletedName = stateToDelete->getName();
+    bool isNumeric = false;
+    int deletedIndex = deletedName.right(deletedName.length() - 1).toInt(&isNumeric);
+
+    // --- 1. Remove transitions FIRST ---
+    QList<TransitionItem*> transitionsToDelete;
+    for (QGraphicsItem* item : scene->items()) {
+        if (auto* trans = qgraphicsitem_cast<TransitionItem*>(item)) {
+            if (trans->getStartItem() == stateToDelete || trans->getEndItem() == stateToDelete)
+                transitionsToDelete.append(trans);
+        }
+    }
+    for (TransitionItem* trans : transitionsToDelete)
+        deleteTransition(trans);
+
+    // --- 2. Remove the state from the map BEFORE renaming others ---
+    stateItems.erase(deletedName);
+
+    // --- 3. Reindex other states ---
+    if (isNumeric) {
+        std::vector<StateItem*> statesToReIndex;
+        for (auto const& [name, state] : stateItems) {
+            bool ok;
+            int currentIndex = name.right(name.length() - 1).toInt(&ok);
+            if (ok && currentIndex > deletedIndex)
+                statesToReIndex.push_back(state);
+        }
+
+        std::sort(statesToReIndex.begin(), statesToReIndex.end(),
+                  [](StateItem* a, StateItem* b) {
+                      return a->getName().right(a->getName().length() - 1).toInt() <
+                             b->getName().right(b->getName().length() - 1).toInt();
+                  });
+
+        for (StateItem* state : statesToReIndex) {
+            int currentIndex = state->getName().right(state->getName().length() - 1).toInt();
+            QString newName = "q" + QString::number(currentIndex - 1);
+            state->setName(newName);
+        }
+
+        // --- 4. Rebuild map cleanly ---
+        std::map<QString, StateItem*> rebuilt;
+        for (auto const& pair : stateItems)
+            rebuilt[pair.second->getName()] = pair.second;
+        stateItems.swap(rebuilt);
+    }
+
+    // --- 5. Now it's safe to delete the state itself ---
+    if (initialState == stateToDelete)
+        initialState = nullptr;
+
+    scene->removeItem(stateToDelete);
+    delete stateToDelete;
+
+    stateCounter = std::max(0, stateCounter - 1);
+}
+
+void AutomatonEditor::deleteTransition(TransitionItem* transitionToDelete)
+{
+    if (!transitionToDelete) return;
+
+    // Remove from scene and delete
+    scene->removeItem(transitionToDelete);
+    delete transitionToDelete;
 }
 
 void AutomatonEditor::resetEditorState() {
