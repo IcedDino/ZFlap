@@ -210,12 +210,17 @@ public:
     void setIsInitial(bool initial);
     bool isInitial() const;
     void highlight(bool on);
+    void addTransition(TransitionItem *transition);
+    void removeTransition(TransitionItem *transition);
 
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    // ADDED: Override itemChange to notify transitions when the state moves.
+    QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
     QString stateName;
+    QList<TransitionItem*> transitions;
     QGraphicsTextItem *label;
     bool isFinalState;
     bool isInitialState;
@@ -231,6 +236,7 @@ class TransitionItem : public QObject, public QGraphicsLineItem
 {
     Q_OBJECT
 public:
+    ~TransitionItem() override;
     TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* parent = nullptr);
     StateItem* getStartItem() const;
     StateItem* getEndItem() const;
@@ -251,9 +257,13 @@ protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
 
 private:
+    void updateLoopPosition();
     StateItem *startItem;
     StateItem *endItem;
     QGraphicsTextItem* label;
+    bool isLoop;
+     QPointF loopCenterOffset;
+    qreal loopRotation;
     QString transitionSymbol;
 };
 

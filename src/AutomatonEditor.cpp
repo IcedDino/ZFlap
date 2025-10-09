@@ -227,11 +227,34 @@ void StateItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     setSelected(true);
 }
 
+// MODIFIED: The logic has been moved back here from mouseReleaseEvent to enable real-time updates.
+QVariant StateItem::itemChange(GraphicsItemChange change, const QVariant &value)
+{
+    if (change == QGraphicsItem::ItemPositionHasChanged) {
+        // Notify all connected transitions to update their position in real-time.
+        // This is the correct way to handle dependent items without causing flicker.
+        for (TransitionItem *transition : qAsConst(transitions)) {
+            transition->updatePosition();
+        }
+    }
+    return QGraphicsItem::itemChange(change, value);
+}
+
+// ADDED: Method to register a transition with this state.
+void StateItem::addTransition(TransitionItem *transition) {
+    transitions.append(transition);
+}
+
+// ADDED: Method to unregister a transition.
+void StateItem::removeTransition(TransitionItem *transition) {
+    transitions.removeAll(transition);
+}
+
 //================================================================================
 // TransitionItem Implementation
 //================================================================================
 TransitionItem::TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* parent)
-    : QGraphicsLineItem(parent), startItem(start), endItem(end), transitionSymbol("ε")
+    : QGraphicsLineItem(parent), startItem(start), endItem(end), isLoop(start == end), loopRotation(0.0), transitionSymbol("ε")
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setPen(QPen(Qt::black, 2));
@@ -239,7 +262,18 @@ TransitionItem::TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* 
     label->setDefaultTextColor(Qt::black);
 
     // Set an initial position
+    startItem->addTransition(this);
+    if (!isLoop) {
+        endItem->addTransition(this);
+    }
     updatePosition();
+}
+
+// ADDED: Destructor to clean up connections.
+TransitionItem::~TransitionItem()
+{
+    if (startItem) startItem->removeTransition(this);
+    if (endItem && !isLoop) endItem->removeTransition(this);
 }
 
 StateItem* TransitionItem::getStartItem() const { return startItem; }
@@ -264,6 +298,29 @@ QRectF TransitionItem::boundingRect() const
 // ADDED: Override to define a larger, more clickable shape for the transition.
 QPainterPath TransitionItem::shape() const
 {
+    if (isLoop) {
+        // Create the same path as the visual loop for an accurate hitbox.
+        const qreal stateRadius = 25.0;
+        const qreal arcWidth = stateRadius;
+        const qreal arcHeight = stateRadius * 2.2;
+        const qreal angleFromVertical = M_PI / 4.0;
+        const qreal y_offset = -stateRadius * cos(angleFromVertical);
+        const qreal x_offset = stateRadius * sin(angleFromVertical);
+        QPointF startPoint(-x_offset, y_offset);
+        QPointF endPoint(x_offset, y_offset);
+        QPointF ctrlPoint(0, -arcHeight);
+
+        QPainterPath path;
+        path.moveTo(startPoint);
+        path.quadTo(ctrlPoint, endPoint);
+
+        // Rotate the path to match the visual rotation
+        QTransform t;
+        t.rotate(loopRotation);
+        path = t.map(path);
+        return path;
+    }
+
     QPainterPathStroker stroker;
     // Make the hitbox 15 pixels wide for easy clicking
     stroker.setWidth(15.0);
@@ -287,10 +344,72 @@ QPainterPath TransitionItem::shape() const
     return stroker.createStroke(linePath);
 }
 
+// ADDED: A new helper function to find the best position for a self-loop.
+void TransitionItem::updateLoopPosition()
+{
+    if (!scene() || !startItem || !isLoop) return;
+
+    // Define the bounding box of the un-rotated arc for collision checking.
+    const qreal stateRadius = 25.0;
+    const qreal arcHeight = stateRadius * 2.2;
+    const qreal arcWidth = stateRadius;
+
+    // --- MODIFIED: Use the actual path for collision detection, not just a bounding box ---
+    const qreal angleFromVertical = M_PI / 4.0;
+    const qreal y_offset = -stateRadius * cos(angleFromVertical);
+    const qreal x_offset = stateRadius * sin(angleFromVertical);
+    QPointF startPoint(-x_offset, y_offset);
+    QPointF endPoint(x_offset, y_offset);
+    QPointF ctrlPoint(0, -arcHeight);
+    QPainterPath basePath;
+    basePath.moveTo(startPoint);
+    basePath.quadTo(ctrlPoint, endPoint);
+
+    // Candidate rotations (top, right, bottom, left)
+    std::vector<qreal> rotations = { 0.0, 90.0, 180.0, 270.0 };
+
+    qreal bestRotation = loopRotation;
+    int minCollisions = -1;
+
+    for (qreal rotation : rotations) {
+        QTransform t;
+        t.rotate(rotation);
+        // Create the potential path in scene coordinates.
+        QPainterPath potentialPath = t.map(basePath);
+        potentialPath.translate(startItem->pos());
+
+        // Find items colliding with this potential loop position
+        QList<QGraphicsItem*> colliding = scene()->items(potentialPath, Qt::IntersectsItemShape);
+        int collisionCount = 0;
+        for (QGraphicsItem* item : colliding) {
+            // Ignore collisions with the state itself, its children (label, final indicator), and this transition's own label.
+            if (item == startItem || item->parentItem() == startItem || item == label) {
+                continue;
+            }
+            collisionCount++;
+        }
+
+        if (minCollisions == -1 || collisionCount < minCollisions) {
+            minCollisions = collisionCount;
+            bestRotation = rotation;
+        }
+    }
+    loopRotation = bestRotation;
+}
+
 // FIXED: Created a dedicated function to update geometry.
 // This separates state modification from the paint() routine.
 void TransitionItem::updatePosition()
 {
+    if (isLoop) {
+        updateLoopPosition(); // Find the best spot for the loop
+        // For a loop, position the TransitionItem's origin at the StateItem's center.
+        // The loop is drawn in the StateItem's coordinate system, so we just need to
+        // position this TransitionItem at the StateItem's location.
+        setPos(startItem->pos());
+        return;
+    }
+
     const qreal radius = 25.0;
     QLineF centerLine(startItem->pos(), endItem->pos());
 
@@ -318,9 +437,76 @@ void TransitionItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 // FIXED: The paint method should only draw, not change the item's state.
 void TransitionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
-    // Update position in case a connected state has moved.
-    // A more advanced solution uses itemChange signals, but this works and is simple.
-    updatePosition();
+    // REMOVED: The call to updatePosition() that was causing the flicker.
+    // The position is now updated via StateItem::itemChange.
+    if (isLoop) {
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(pen());
+        painter->setBrush(Qt::NoBrush); // The arc itself is not filled
+
+        // --- NEW, SIMPLIFIED DRAWING LOGIC ---
+        // This logic creates a clean, semi-circular arc above the state.
+
+        const qreal stateRadius = 25.0;
+        const qreal arcWidth = stateRadius;      // The arc will span the full width of the state.
+        const qreal arcHeight = stateRadius * 2.2; // The arc will be tall and sweeping.
+
+        // --- MODIFIED: Connect to the "shoulders" of the circle, not the equator ---
+        // Calculate points at 45 degrees from the top vertical axis for a "north-left" and "north-right" connection.
+        const qreal angleFromVertical = M_PI / 4.0; // 45 degrees
+        const qreal y_offset = -stateRadius * cos(angleFromVertical);
+        const qreal x_offset = stateRadius * sin(angleFromVertical);
+        QPointF startPoint(-x_offset, y_offset);
+        QPointF endPoint(x_offset, y_offset);
+        // The Bezier control point defines the peak of the arc.
+        QPointF ctrlPoint(0, -arcHeight);
+
+        // --- START: Label Positioning (un-rotated) ---
+        QTransform t;
+        t.rotate(loopRotation);
+        QPointF rotatedCtrlPoint = t.map(ctrlPoint); // Calculate the peak of the rotated arc.
+
+        // --- MODIFIED: Calculate label offset based on rotation ---
+        QPointF labelOffset;
+        if (qFuzzyCompare(loopRotation, 0.0)) { // Top
+            labelOffset = QPointF(-label->boundingRect().width() / 2, -label->boundingRect().height() - 5);
+        } else if (qFuzzyCompare(loopRotation, 90.0)) { // Right
+            labelOffset = QPointF(5, -label->boundingRect().height() / 2);
+        } else if (qFuzzyCompare(loopRotation, 180.0)) { // Bottom
+            labelOffset = QPointF(-label->boundingRect().width() / 2, 5);
+        } else { // Left (270.0)
+            labelOffset = QPointF(-label->boundingRect().width() - 1, -label->boundingRect().height() / 2);
+        }
+
+        label->setPos(rotatedCtrlPoint + labelOffset);
+        // --- END: Label Positioning ---
+
+        // --- START: Rotated Arc Drawing ---
+        painter->save();
+        painter->rotate(loopRotation);
+
+        // Create the arc path using a quadratic Bezier curve.
+        QPainterPath path(startPoint);
+        path.quadTo(ctrlPoint, endPoint);
+        painter->drawPath(path);
+
+        // Draw the arrowhead at the end of the arc.
+        // The angle is calculated from the control point to the end point.
+        qreal angle = std::atan2(-ctrlPoint.y() + endPoint.y(), -ctrlPoint.x() + endPoint.x());
+        // --- CORRECTED: Symmetrical arrowhead calculation ---
+        QPointF arrowTip = endPoint;
+        // Calculate the two base points of the arrowhead by rotating the angle.
+        QPointF arrowP1 = arrowTip - QPointF(cos(angle - M_PI / 6.0) * 12, sin(angle - M_PI / 6.0) * 12);
+        QPointF arrowP2 = arrowTip - QPointF(cos(angle + M_PI / 6.0) * 12, sin(angle + M_PI / 6.0) * 12);
+        // Draw the filled arrowhead polygon.
+        painter->setBrush(Qt::black);
+        painter->drawPolygon(QPolygonF() << arrowTip << arrowP1 << arrowP2);
+
+        // Restore the painter's state
+        painter->restore();
+        // --- END: Rotated Arc Drawing ---
+        return;
+    }
 
     QGraphicsLineItem::paint(painter, option, widget);
 
@@ -842,12 +1028,10 @@ void AutomatonEditor::onStateClicked(StateItem* state) {
                 startTransitionState = state;
             } else {
                 StateItem* endState = state;
-                if (startTransitionState != endState) {
-                    auto* transition = new TransitionItem(startTransitionState, endState);
-                    scene->addItem(transition);
-                    connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
-                }
-                // Set the end state as the start of the next transition to allow chaining.
+                // REMOVED: The check that prevented creating loops.
+                auto* transition = new TransitionItem(startTransitionState, endState);
+                scene->addItem(transition);
+                connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
                 startTransitionState = endState;
             }
             break;
