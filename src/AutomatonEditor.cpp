@@ -8,20 +8,24 @@
 
 #include "AutomatonEditor.h"
 #include <QGraphicsTextItem>
-#include <QPainter>
 #include <QMessageBox>
-#include <QDebug>
 #include <cmath>
-#include <QToolTip>
 #include <QFileDialog>
-#include <QTextStream>
 #include <QTimer>
-#include <QSet>
 #include <vector>
 #include <QTextEdit>
 #include <QSpinBox>
 #include <Transition.h>
 #include <QSettings>
+#include <QVBoxLayout>
+#include <QGroupBox>
+#include <QPushButton>
+#include <QLabel>
+#include <QButtonGroup>
+#include <QLineEdit>
+#include <QGraphicsView>
+#include <QMouseEvent>
+
 
 //================================================================================
 // EditorView Implementation
@@ -37,11 +41,11 @@ void EditorView::mousePressEvent(QMouseEvent *event)
     QGraphicsItem *clickedItem = itemAt(event->pos());
 
     if (!clickedItem) {
-        // If clicking on empty space, deselect everything
+        // If clicking on an empty space, deselect everything
         scene()->clearSelection();
     } else {
         // Allow clicking on a state's label (child item) to select the state
-        StateItem *state = qgraphicsitem_cast<StateItem*>(clickedItem);
+        auto *state = qgraphicsitem_cast<StateItem*>(clickedItem);
         if (!state && clickedItem->parentItem()) {
             state = qgraphicsitem_cast<StateItem*>(clickedItem->parentItem());
         }
@@ -99,10 +103,10 @@ bool StateItem::isInitial() const {
 
 void StateItem::highlight(bool on) {
     if (on) {
-        // Use a distinct color for active validation state
+        // Use a distinct color for an active validation state
         setBrush(QColor(120, 207, 96)); // Green for active
     } else {
-        // Revert to original color based on its status
+        // Revert to the original color based on its status
         setIsInitial(isInitialState);
     }
 }
@@ -124,7 +128,7 @@ TransitionItem::TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* 
     label = new QGraphicsTextItem(transitionSymbol, this);
     label->setDefaultTextColor(Qt::blue);
 
-    // Set initial position
+    // Set an initial position
     updatePosition();
 }
 
@@ -193,7 +197,14 @@ void TransitionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
 // AutomatonEditor Implementation
 //================================================================================
 AutomatonEditor::AutomatonEditor(QWidget *parent)
-    : QWidget(parent), stateCounter(0), currentTool(SELECT), startTransitionState(nullptr), selectedTransitionItem(nullptr), initialState(nullptr)
+    : QWidget(parent), stateCounter(0), currentTool(SELECT), startTransitionState(nullptr), selectedTransitionItem(nullptr), initialState(nullptr), toolButtonGroup(nullptr),
+      saveButton(nullptr), mainLayout(nullptr), graphicsView(nullptr), scene(nullptr), toolbarLayout(nullptr), toolsGroup(nullptr),
+      addStateButton(nullptr), linkButton(nullptr), setInitialButton(nullptr), toggleFinalButton(nullptr), validateChainButton(nullptr),
+      generatePanelButton(nullptr), validationBox(nullptr), chainInput(nullptr), playButton(nullptr), pauseButton(nullptr),
+      nextStepButton(nullptr), clearButton(nullptr), instantValidateButton(nullptr), validationStatusLabel(nullptr),
+      transitionBox(nullptr), transitionSymbolEdit(nullptr), fromStateLabel(nullptr), toStateLabel(nullptr),
+      updateTransitionButton(nullptr), generationBox(nullptr), maxLengthSpinBox(nullptr), generateButton(nullptr),
+      resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr), validationStep(0)
 {
     setupUI();
     applyStyles();
@@ -201,17 +212,36 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
     validationTimer = new QTimer(this);
     connect(validationTimer, &QTimer::timeout, this, &AutomatonEditor::onNextStepValidation);
 
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, QColor("#FFFEF5"));
-    pal.setColor(QPalette::WindowText, Qt::black);
-    setAutoFillBackground(true);
-    setPalette(pal);
+}
+
+AutomatonEditor::~AutomatonEditor()
+{
+    clearAutomaton();
 }
 
 void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet) {
+    clearAutomaton();
     automatonName = name;
     currentAlphabet = alphabet;
     setWindowTitle("Editor - " + name);
+}
+
+void AutomatonEditor::clearAutomaton()
+{
+    if (scene) {
+        scene->clear();
+    }
+    stateItems.clear();
+    transitionHandler.clear();
+    stateCounter = 0;
+    initialState = nullptr;
+    currentTool = SELECT;
+    startTransitionState = nullptr;
+    selectedTransitionItem = nullptr;
+    validationStep = 0;
+    validationChain.clear();
+    currentValidationStates.clear();
+    resetEditorState();
 }
 
 void AutomatonEditor::rebuildTransitionHandler()
@@ -220,8 +250,7 @@ void AutomatonEditor::rebuildTransitionHandler()
 
     for (QGraphicsItem *item : scene->items()) {
         // Check if the item is a TransitionItem
-        TransitionItem *transItem = qgraphicsitem_cast<TransitionItem*>(item);
-        if (transItem) {
+        if (auto *transItem = qgraphicsitem_cast<TransitionItem*>(item)) {
             std::string from = transItem->getStartItem()->getName().toStdString();
             std::string to = transItem->getEndItem()->getName().toStdString();
 
@@ -242,12 +271,11 @@ void AutomatonEditor::rebuildTransitionHandler()
 void AutomatonEditor::setupUI() {
     mainLayout = new QVBoxLayout(this);
     scene = new QGraphicsScene(this);
-    scene->setBackgroundBrush(QColor("#FFFEF5"));
     graphicsView = new EditorView(scene, this);
     graphicsView->setRenderHint(QPainter::Antialiasing);
     graphicsView->setCursor(Qt::ArrowCursor);
 
-    connect(graphicsView, &EditorView::stateClicked, this, &AutomatonEditor::onStateSelectedForTransition);
+    connect(graphicsView, &EditorView::stateClicked, this, &AutomatonEditor::onStateClicked);
 
     toolsGroup = new QGroupBox();
     toolsGroup->setObjectName("toolsGroup");
@@ -262,6 +290,13 @@ void AutomatonEditor::setupUI() {
     linkButton->setToolTip("Link States");
     linkButton->setFixedSize(40, 40);
     linkButton->setCheckable(true);
+    linkButton->setObjectName("linkButton");
+
+    // New: Button to toggle generator panel
+    generatePanelButton = new QPushButton("✨");
+    generatePanelButton->setToolTip("Generate Accepted Strings Panel");
+    generatePanelButton->setFixedSize(40, 40);
+    generatePanelButton->setCheckable(true);
 
     setInitialButton = new QPushButton("→");
     setInitialButton->setToolTip("Set Initial State");
@@ -280,23 +315,27 @@ void AutomatonEditor::setupUI() {
     validateChainButton->setToolTip("Validate Chain");
     validateChainButton->setFixedSize(40, 40);
     validateChainButton->setCheckable(true);
+    validateChainButton->setObjectName("validateChainButton");
 
     toolbarLayout->addWidget(addStateButton);
     toolbarLayout->addWidget(linkButton);
     toolbarLayout->addWidget(setInitialButton);
     toolbarLayout->addWidget(toggleFinalButton);
     toolbarLayout->addWidget(saveButton);
-    toolbarLayout->addWidget(validateChainButton);
-    // New: Button to toggle generator panel
-    generatePanelButton = new QPushButton("✨");
-    generatePanelButton->setToolTip("Generate Accepted Strings Panel");
-    generatePanelButton->setFixedSize(40, 40);
-    generatePanelButton->setCheckable(true);
     toolbarLayout->addWidget(generatePanelButton);
+    toolbarLayout->addWidget(validateChainButton);
     toolbarLayout->addStretch();
+
+    // --- Tool Button Group for mutual exclusivity ---
+    toolButtonGroup = new QButtonGroup(this);
+    toolButtonGroup->addButton(linkButton);
+    toolButtonGroup->addButton(validateChainButton);
+    toolButtonGroup->addButton(generatePanelButton);
+    toolButtonGroup->setExclusive(true); // Only one can be checked at a time
 
     connect(addStateButton, &QPushButton::clicked, this, &AutomatonEditor::onAddStateClicked);
     connect(linkButton, &QPushButton::clicked, this, &AutomatonEditor::onLinkToolClicked);
+    connect(generatePanelButton, &QPushButton::clicked, this, &AutomatonEditor::onGenerateToolClicked);
     connect(setInitialButton, &QPushButton::clicked, this, &AutomatonEditor::onSetInitialState);
     connect(toggleFinalButton, &QPushButton::clicked, this, &AutomatonEditor::onToggleFinalState);
     connect(saveButton, &QPushButton::clicked, this, &AutomatonEditor::onSaveAutomatonClicked);
@@ -319,7 +358,8 @@ void AutomatonEditor::setupUI() {
 
     sidebarLayout->addWidget(fromStateLabel);
     sidebarLayout->addWidget(toStateLabel);
-    sidebarLayout->addWidget(new QLabel("Input Symbol:"));
+    inputSymbolLabel = new QLabel("Input Symbol:");
+    sidebarLayout->addWidget(inputSymbolLabel);
     sidebarLayout->addWidget(transitionSymbolEdit);
     sidebarLayout->addWidget(updateTransitionButton);
 
@@ -337,7 +377,7 @@ void AutomatonEditor::setupUI() {
     validationStatusLabel = new QLabel("Status: Idle");
     validationStatusLabel->setStyleSheet("font-weight: bold;");
 
-    QHBoxLayout *controlsLayout = new QHBoxLayout();
+    auto *controlsLayout = new QHBoxLayout();
     playButton = new QPushButton("▶");
     playButton->setToolTip("Play");
     pauseButton = new QPushButton("⏸");
@@ -357,7 +397,8 @@ void AutomatonEditor::setupUI() {
     controlsLayout->addWidget(instantValidateButton); // Add to layout
 
 
-    validationLayout->addWidget(new QLabel("Input Chain:"));
+    inputChainLabel = new QLabel("Input Chain:");
+    validationLayout->addWidget(inputChainLabel);
     validationLayout->addWidget(chainInput);
     validationLayout->addLayout(controlsLayout);
     validationLayout->addWidget(validationStatusLabel);
@@ -384,23 +425,24 @@ void AutomatonEditor::setupUI() {
     resultsTextEdit = new QTextEdit();
     resultsTextEdit->setReadOnly(true);
 
-    generationLayout->addWidget(new QLabel("Max Length:"));
+    maxLengthLabel = new QLabel("Max Length:");
+    generationLayout->addWidget(maxLengthLabel);
     generationLayout->addWidget(maxLengthSpinBox);
     generationLayout->addWidget(generateButton);
-    generationLayout->addWidget(new QLabel("Results:"));
+    resultsLabel = new QLabel("Results:");
+    generationLayout->addWidget(resultsLabel);
     generationLayout->addWidget(resultsTextEdit);
 
     connect(generateButton, &QPushButton::clicked, this, &AutomatonEditor::onGenerateStringsClicked);
-    connect(generatePanelButton, &QPushButton::clicked, this, &AutomatonEditor::onGenerateToolClicked);
 
     // --- Main Layout Assembly ---
-    QVBoxLayout *sidebarsLayout = new QVBoxLayout();
+    auto *sidebarsLayout = new QVBoxLayout();
     sidebarsLayout->addWidget(transitionBox);
     sidebarsLayout->addWidget(validationBox);
     sidebarsLayout->addWidget(generationBox); // Toggled via toolbar button
     sidebarsLayout->addStretch();
 
-    QHBoxLayout *contentLayout = new QHBoxLayout();
+    auto *contentLayout = new QHBoxLayout();
     contentLayout->addWidget(graphicsView, 4); // Graphics view takes most space
     contentLayout->addLayout(sidebarsLayout, 1); // Sidebars take less space
 
@@ -410,15 +452,92 @@ void AutomatonEditor::setupUI() {
 
 void AutomatonEditor::applyStyles()
 {
-    // Styles remain the same
+    // Define a modern, clean color palette and fonts
+    // Consistent with AlphabetSelector for a unified look
+    QColor bgColor("#FFFEF5");         // Creamy off-white
+    QColor textColor("#1E1E1E");         // Almost black
+    QColor borderColor("#D0D0D0");       // Light gray for borders
+    QColor panelTitleColor("#3A4D6D");   // Dark blue-gray for titles
+
+    // Toolbar button colors (from AlphabetSelector)
+    QColor toolbarButtonColor("#F0CF60");       // cream/yellow
+    QColor toolbarButtonHoverColor("#DCBB4C");  // deeper yellow
+    QColor toolbarButtonCheckedColor("#A8781E"); // darker golden/brown
+    QColor toolbarButtonCheckedHoverColor("#8C6118");
+    QColor toolbarButtonPressedColor("#C8A738");
+
+    // Set the main window background
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, bgColor);
+    pal.setColor(QPalette::WindowText, textColor);
+    setAutoFillBackground(true);
+    setPalette(pal);
+
+    // Set scene background
+    if (scene) {
+        scene->setBackgroundBrush(bgColor);
+    }
+
+    // Use a stylesheet for a consistent look and feel
+    QString styleSheet = QString(
+        "QWidget { font-family: 'Segoe UI', 'Arial', sans-serif; font-size: 11pt; color: %1; }"
+        "QGroupBox { "
+        "    background-color: %2; "
+        "    border: 1px solid %3; "
+        "    border-radius: 8px; "
+        "    margin-top: 10px; "
+        "    padding: 10px; "
+        "}"
+        "QGroupBox::title { "
+        "    subcontrol-origin: margin; "
+        "    subcontrol-position: top center; "
+        "    padding: 0 10px; "
+        "    background-color: %2; "
+        "    color: %4; "
+        "    font-weight: bold; "
+        "}"
+        // General style for buttons inside panels (like "Update", "Generate")
+        "QGroupBox QPushButton, QGroupBox QSpinBox::up-button, QGroupBox QSpinBox::down-button { "
+        "    background-color: %5; " // cream/yellow
+        "    color: %1; "           // Black text
+        "    border: 1px solid %1; "
+        "    border-radius: 5px; "
+        "    padding: 8px 12px; "
+        "    font-weight: bold; "
+        "}"
+        "QGroupBox QPushButton:hover { background-color: %6; }" // deeper yellow
+        "QGroupBox QPushButton:pressed { background-color: %7; }"
+        // Specific style for toolbar buttons
+        "QGroupBox#toolsGroup QPushButton { "
+        "    background-color: %5; "
+        "    color: %1; " // Black text
+        "    border: 1px solid %1; "
+        "}"
+        "QGroupBox#toolsGroup QPushButton:hover { background-color: %6; }"
+        "QGroupBox#toolsGroup QPushButton:pressed { background-color: %7; }"
+        "QGroupBox#toolsGroup QPushButton:checked { background-color: %8; color: white; border: 1px solid %1; }"
+        "QGroupBox#toolsGroup QPushButton:checked:hover { background-color: %9; }"
+        // Fix for invisible labels in side panels
+        "QGroupBox QLabel { color: %1; }"
+        "QLineEdit, QSpinBox, QTextEdit { "
+        "    background-color: white; "
+        "    border: 1px solid %3; "
+        "    border-radius: 5px; "
+        "    padding: 5px; "
+        "}"
+    ).arg(textColor.name(), bgColor.name(), borderColor.name(), panelTitleColor.name(),
+          toolbarButtonColor.name(), toolbarButtonHoverColor.name(), toolbarButtonPressedColor.name(),
+          toolbarButtonCheckedColor.name(), toolbarButtonCheckedHoverColor.name());
+
+    this->setStyleSheet(styleSheet);
 }
 
 
 void AutomatonEditor::onAddStateClicked() {
     resetEditorState();
     QString name = "q" + QString::number(stateCounter++);
-    StateItem *state = new StateItem(name);
-    state->setPos(100 + (stateCounter % 5) * 80, 100 + (stateCounter / 5) * 80);
+    auto *state = new StateItem(name);
+    state->setPos(100.0 + (stateCounter % 5) * 80.0, 100.0 + (stateCounter / 5) * 80.0);
     scene->addItem(state);
     stateItems[name] = state;
 }
@@ -427,48 +546,58 @@ void AutomatonEditor::onLinkToolClicked() {
     currentTool = linkButton->isChecked() ? ADD_TRANSITION : SELECT;
     graphicsView->setCursor(currentTool == ADD_TRANSITION ? Qt::CrossCursor : Qt::ArrowCursor);
     if (currentTool != ADD_TRANSITION) {
-        startTransitionState = nullptr; // Reset if tool is deselected
+        startTransitionState = nullptr; // Reset if the tool is deselected
     }
 }
 
 void AutomatonEditor::onValidateToolClicked()
 {
-    validationBox->setVisible(validateChainButton->isChecked());
-    // If validation panel is opened, close generator panel
-    if (validateChainButton->isChecked()) {
-        if (generatePanelButton) generatePanelButton->setChecked(false);
-        if (generationBox) generationBox->setVisible(false);
-    }
+    bool isChecked = validateChainButton->isChecked();
+    validationBox->setVisible(isChecked);
+    // If unchecking, reset the validation state
+    if (!isChecked) onClearValidation();
 }
 
 // Toggle handler for generator panel button
 void AutomatonEditor::onGenerateToolClicked() {
-    bool visible = generatePanelButton && generatePanelButton->isChecked();
-    if (visible) {
-        // Hide validation panel when showing generator panel
-        if (validateChainButton) validateChainButton->setChecked(false);
-        if (validationBox) validationBox->setVisible(false);
-    }
-    if (generationBox) generationBox->setVisible(visible);
+    generationBox->setVisible(generatePanelButton->isChecked());
 }
 
-void AutomatonEditor::onStateSelectedForTransition(StateItem* state) {
-    if (currentTool != ADD_TRANSITION) return;
+void AutomatonEditor::onStateClicked(StateItem* state) {
+    switch (currentTool) {
+        case ADD_TRANSITION:
+            if (!startTransitionState) {
+                startTransitionState = state;
+            } else {
+                StateItem* endState = state;
+                if (startTransitionState != endState) {
+                    auto* transition = new TransitionItem(startTransitionState, endState);
+                    scene->addItem(transition);
+                    connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
+                }
+                resetEditorState(); // Reset after creating the transition
+            }
+            break;
 
-    if (!startTransitionState) {
-        startTransitionState = state;
-        // Maybe add visual feedback for the starting state here
-    } else {
-        StateItem* endState = state;
-        // Avoid self-loops for now, can be changed later if needed.
-        if (startTransitionState != endState) {
-            TransitionItem* transition = new TransitionItem(startTransitionState, endState);
-            scene->addItem(transition);
-            connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
-        }
-        // Reset to allow creating a new transition from scratch
-        startTransitionState = nullptr;
-        // Optionally, could set startTransitionState = endState to chain transitions.
+        case SET_INITIAL:
+            // Unset the old initial state if it exists
+            if (initialState) {
+                initialState->setIsInitial(false);
+            }
+            initialState = state;
+            initialState->setIsInitial(true);
+            resetEditorState(); // Return to default mode
+            break;
+
+        case TOGGLE_FINAL:
+            state->setIsFinal(!state->isFinal());
+            resetEditorState(); // Return to default mode
+            break;
+
+        case SELECT:
+        default:
+            resetEditorState(); // Deselect any tool if we click a state in normal mode
+            break;
     }
 }
 
@@ -548,6 +677,7 @@ std::set<std::string> AutomatonEditor::getFinalStates() const {
 // ADDED: Helper function to get the alphabet as a vector.
 std::vector<char> AutomatonEditor::getAlphabetVector() const {
     std::vector<char> alphabetVec;
+    alphabetVec.reserve(currentAlphabet.size());
     for (char c : currentAlphabet) {
         alphabetVec.push_back(c);
     }
@@ -590,7 +720,6 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
 
     // 3. Update the UI
     selectedTransitionItem->setSymbol(validSymbols.join(','));
-    qDebug() << "Transition added:" << QString::fromStdString(from) << "->" << QString::fromStdString(to) << "on" << validSymbols.join(',');
 
     selectedTransitionItem->setSelected(false);
     selectedTransitionItem = nullptr;
@@ -599,39 +728,39 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
 
 void AutomatonEditor::resetEditorState() {
     startTransitionState = nullptr;
-    linkButton->setChecked(false);
 
-    if (validateChainButton->isChecked()) {
-        validateChainButton->setChecked(false);
-        onValidateToolClicked();
+    // Deselect all buttons in the exclusive group
+    if (toolButtonGroup->checkedButton()) {
+        toolButtonGroup->setExclusive(false); // Temporarily disable exclusivity to uncheck
+        toolButtonGroup->checkedButton()->setChecked(false);
+        toolButtonGroup->setExclusive(true);
     }
-    onClearValidation();
 
     currentTool = SELECT;
-    graphicsView->setCursor(Qt::ArrowCursor);
-    scene->clearSelection();
-    transitionBox->setVisible(false);
-    if (generatePanelButton) {
-        generatePanelButton->setChecked(false);
-    }
-    if (generationBox) {
-        generationBox->setVisible(false);
-    }
+    if(graphicsView) graphicsView->setCursor(Qt::ArrowCursor);
+    if(scene) scene->clearSelection();
+    if(transitionBox) transitionBox->setVisible(false);
+    if (validationBox) validationBox->setVisible(false);
+    if (generationBox) generationBox->setVisible(false);
 }
 
 void AutomatonEditor::onClearValidation()
 {
-    validationTimer->stop();
+    if(validationTimer) validationTimer->stop();
     unhighlightAllStates();
     currentValidationStates.clear();
     validationStep = 0;
     validationChain.clear();
-    chainInput->clear();
-    chainInput->setEnabled(true);
-    playButton->setEnabled(true);
-    nextStepButton->setEnabled(true);
-    validationStatusLabel->setText("Status: Idle");
-    validationStatusLabel->setStyleSheet("font-weight: bold; color: black;");
+    if(chainInput) {
+        chainInput->clear();
+        chainInput->setEnabled(true);
+    }
+    if(playButton) playButton->setEnabled(true);
+    if(nextStepButton) nextStepButton->setEnabled(true);
+    if(validationStatusLabel) {
+        validationStatusLabel->setText("Status: Idle");
+        validationStatusLabel->setStyleSheet("font-weight: bold; color: black;");
+    }
 }
 
 void AutomatonEditor::onPlayValidation()
@@ -644,11 +773,8 @@ void AutomatonEditor::onPlayValidation()
     rebuildTransitionHandler();
 
     // Minor Improvement: Allow validating the empty string
-    if (chainInput->text().isEmpty() && !initialState->isFinal()) {
-        // You can decide how to handle this - here we just proceed
-        // The existing logic will correctly reject it.
-    } else if (chainInput->text().isEmpty() && initialState->isFinal()) {
-        // The existing logic will correctly accept it.
+    if (chainInput->text().isEmpty()) {
+        // The existing logic will correctly accept/reject it.
     }
 
     // Preserve the input chain across the reset
@@ -689,19 +815,12 @@ void AutomatonEditor::onNextStepValidation()
     if (validationStep >= validationChain.length()) {
         validationTimer->stop();
         bool accepted = false;
-        qDebug() << "--- Validation Finished ---";
-        qDebug() << "Chain:" << validationChain;
-        qDebug() << "Checking final states. States reached:";
         for (StateItem* state : currentValidationStates) {
-            qDebug() << "  - State:" << state->getName() << "| Is Final?:" << state->isFinal();
             if (state->isFinal()) {
                 accepted = true;
-                // We keep checking all states for the debug log, so we comment out break
-                // break;
+                break;
             }
         }
-        qDebug() << "Overall result will be:" << (accepted ? "Accepted" : "Rejected");
-        // === END OF REPLACEMENT ===
         if (accepted) {
             validationStatusLabel->setText("Status: Accepted");
             validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
@@ -718,14 +837,14 @@ void AutomatonEditor::onNextStepValidation()
 
     char symbol = validationChain.at(validationStep).toLatin1();
     std::vector<StateItem*> nextStatesVec;
-    QSet<StateItem*> nextStatesSet; // Use a set to handle NFA non-determinism correctly
+    std::set<StateItem*> nextStatesSet; // Use a set to handle NFA non-determinism correctly
 
     for (StateItem* currentState : currentValidationStates) {
         std::string from = currentState->getName().toStdString();
         std::vector<std::string> nextStateNames = transitionHandler.getNextStates(from, symbol);
         for (const std::string& name : nextStateNames) {
             StateItem* nextStateItem = stateItems[QString::fromStdString(name)];
-            if (nextStateItem && !nextStatesSet.contains(nextStateItem)) {
+            if (nextStateItem && !nextStatesSet.count(nextStateItem)) {
                 nextStatesSet.insert(nextStateItem);
                 nextStatesVec.push_back(nextStateItem);
             }
@@ -759,30 +878,22 @@ StateItem* AutomatonEditor::getSelectedState() {
 
 void AutomatonEditor::onSetInitialState()
 {
-    StateItem* selected = getSelectedState();
-    if (!selected) {
-        QMessageBox::information(this, "Info", "Select a state to mark it as initial.");
-        return;
-    }
-    // Unset the old initial state if it exists
-    if (initialState) {
-        initialState->setIsInitial(false);
-    }
-    initialState = selected;
-    initialState->setIsInitial(true);
+    resetEditorState(); // Deselect other tools first
+    currentTool = SET_INITIAL;
+    graphicsView->setCursor(Qt::PointingHandCursor);
+    // Optionally, provide user feedback, e.g., via a status bar
 }
 
 void AutomatonEditor::onToggleFinalState()
 {
-     StateItem* selected = getSelectedState();
-    if (!selected) {
-        QMessageBox::information(this, "Info", "Select a state to toggle its final status.");
-        return;
-    }
-    selected->setIsFinal(!selected->isFinal());
+    resetEditorState(); // Deselect other tools first
+    currentTool = TOGGLE_FINAL;
+    graphicsView->setCursor(Qt::PointingHandCursor);
+    // Optionally, provide user feedback
 }
 
 void AutomatonEditor::onSaveAutomatonClicked() {
+    resetEditorState();
     if (!initialState) {
         QMessageBox::warning(this, "Error", "Debe definir un estado inicial antes de guardar.");
         return;

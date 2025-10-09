@@ -11,28 +11,36 @@
 
 #include <QWidget>
 #include <QGraphicsView>
-#include <QGraphicsScene>
-#include <QPushButton>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QLineEdit>
-#include <QGroupBox>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsLineItem>
 #include <QMouseEvent>
+#include <QGraphicsSceneMouseEvent>
+#include <QObject>
 #include "Transition.h"
 #include <set>
 #include <map>
-#include <QTextEdit>
-#include <QSpinBox>
+#include <vector>
 #include "validacion_cadenas.h"
 
 
-// Forward declaration
+// Forward declarations
 class StateItem;
 class TransitionItem;
-class QTimer; // Forward declare QTimer
+class QTimer;
+class QGraphicsScene;
+class QPushButton;
+class QVBoxLayout;
+class QHBoxLayout;
+class QLabel;
+class QLineEdit;
+class QGroupBox;
+class QTextEdit;
+class QButtonGroup;
+class QSpinBox;
+class QPainter;
+class QStyleOptionGraphicsItem;
+class QGraphicsTextItem;
+
 
 /**
  * @class EditorView
@@ -65,21 +73,17 @@ class AutomatonEditor : public QWidget
 {
     Q_OBJECT
 
-    QPushButton *saveButton; // botón de guardar
-
-private slots:
-    void onSaveAutomatonClicked();
-
-
 public:
     explicit AutomatonEditor(QWidget *parent = nullptr);
+    ~AutomatonEditor() override;
     void loadAutomaton(const QString& name, const std::set<char>& alphabet);
 
 private slots:
+    void onSaveAutomatonClicked();
     // --- Existing Slots ---
     void onAddStateClicked();
     void onLinkToolClicked();
-    void onStateSelectedForTransition(StateItem* state);
+    void onStateClicked(StateItem* state);
     void onTransitionItemSelected(TransitionItem* item);
     void onUpdateTransitionSymbol();
     void onSetInitialState();
@@ -101,6 +105,7 @@ private:
     void setupUI();
     void resetEditorState();
     void applyStyles();
+    void clearAutomaton();
     StateItem* getSelectedState();
     void unhighlightAllStates();
 
@@ -110,16 +115,18 @@ private:
     std::set<std::string> getFinalStates() const;
     std::vector<char> getAlphabetVector() const;
 
-    // --- Existing UI Members ---
+    // --- UI Members ---
     QVBoxLayout *mainLayout;
     EditorView *graphicsView;
     QGraphicsScene *scene;
     QHBoxLayout *toolbarLayout;
+    QButtonGroup *toolButtonGroup;
     QGroupBox *toolsGroup;
     QPushButton *addStateButton;
     QPushButton *linkButton;
     QPushButton *setInitialButton;
     QPushButton *toggleFinalButton;
+    QPushButton *saveButton;
     QPushButton *validateChainButton;
     QPushButton *generatePanelButton;
 
@@ -130,7 +137,6 @@ private:
     QPushButton *pauseButton;
     QPushButton *nextStepButton;
     QPushButton *clearButton;
-    // ADDED: Button for instant backend validation
     QPushButton *instantValidateButton;
     QLabel *validationStatusLabel;
 
@@ -147,6 +153,12 @@ private:
     QPushButton *generateButton;
     QTextEdit *resultsTextEdit;
 
+    // --- Static Labels ---
+    QLabel *inputSymbolLabel;
+    QLabel *inputChainLabel;
+    QLabel *maxLengthLabel;
+    QLabel *resultsLabel;
+
     // --- Automaton Data & State ---
     Transition transitionHandler;
     std::set<char> currentAlphabet;
@@ -154,7 +166,7 @@ private:
     int stateCounter;
     StateItem* initialState;
     std::map<QString, StateItem*> stateItems;
-    enum Tool { SELECT, ADD_TRANSITION };
+    enum Tool { SELECT, ADD_TRANSITION, SET_INITIAL, TOGGLE_FINAL };
     Tool currentTool;
     StateItem* startTransitionState;
     TransitionItem* selectedTransitionItem;
