@@ -455,6 +455,9 @@ void AutomatonEditor::keyPressEvent(QKeyEvent *event)
 void AutomatonEditor::setupUI() {
     // Change the main layout to arrange the toolbar and content side-by-side.
     mainLayout = new QHBoxLayout(this);
+    // Set margins to keep the toolbar flush left, but provide padding elsewhere.
+    mainLayout->setContentsMargins(0, 15, 15, 15);
+
     scene = new QGraphicsScene(this);
     // Set a large, fixed scene rectangle to allow "infinite" panning on the canvas.
     scene->setSceneRect(-5000, -5000, 10000, 10000);
@@ -467,43 +470,46 @@ void AutomatonEditor::setupUI() {
     connect(graphicsView, &EditorView::backgroundClicked, this, &AutomatonEditor::onBackgroundClicked);
     connect(graphicsView, &EditorView::viewTransformed, this, &AutomatonEditor::updateResetZoomButtonVisibility);
 
-    toolsGroup = new QGroupBox();
-    toolsGroup->setObjectName("toolsGroup");
-    // Change the toolbar layout to stack buttons vertically.
-    toolbarLayout = new QVBoxLayout(toolsGroup);
-    toolbarLayout->setSpacing(10);
-    toolsGroup->setFixedWidth(70); // Give the vertical toolbar a fixed width.
+    // Create a dedicated widget for the vertical toolbar.
+    auto* toolbarWidget = new QWidget();
+    toolbarWidget->setObjectName("toolsGroup"); // Keep object name for styling
+    toolbarWidget->setFixedWidth(70); // Give the vertical toolbar a fixed width.
 
-    addStateButton = new QPushButton("+");
+    // Change the toolbar layout to stack buttons vertically and center them.
+    toolbarLayout = new QVBoxLayout(toolbarWidget);
+    toolbarLayout->setSpacing(10);
+    toolbarLayout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+
+    addStateButton = new QPushButton("⊕");
     addStateButton->setToolTip("Add State");
     addStateButton->setFixedSize(40, 40);
 
-    linkButton = new QPushButton("🔗");
+    linkButton = new QPushButton("↪");
     linkButton->setToolTip("Link States");
     linkButton->setFixedSize(40, 40);
     linkButton->setCheckable(true);
     linkButton->setObjectName("linkButton");
 
     // New: Button to toggle generator panel
-    generatePanelButton = new QPushButton("✨");
+    generatePanelButton = new QPushButton("⇒");
     generatePanelButton->setToolTip("Generate Accepted Strings Panel");
     generatePanelButton->setFixedSize(40, 40);
     generatePanelButton->setCheckable(true);
 
-    setInitialButton = new QPushButton("→");
+    setInitialButton = new QPushButton("→"); // This one is already great
     setInitialButton->setToolTip("Set Initial State");
     setInitialButton->setFixedSize(40, 40);
 
-    toggleFinalButton = new QPushButton("◎");
+    toggleFinalButton = new QPushButton("◎"); // This one is also perfect
     toggleFinalButton->setToolTip("Toggle Final State");
     toggleFinalButton->setFixedSize(40, 40);
 
-    saveButton = new QPushButton("💾");
+    saveButton = new QPushButton("▼");
     saveButton->setToolTip("Guardar autómata (.zflap)");
     saveButton->setFixedSize(40, 40);
 
     // Validation tool button
-    validateChainButton = new QPushButton("✔️");
+    validateChainButton = new QPushButton("?");
     validateChainButton->setToolTip("Validate Chain");
     validateChainButton->setFixedSize(40, 40);
     validateChainButton->setCheckable(true);
@@ -646,11 +652,11 @@ void AutomatonEditor::setupUI() {
     contentLayout->setStretchFactor(sidebarsLayout, 0);
 
 
-    mainLayout->addWidget(toolsGroup); // Add the toolbar to the left.
+    mainLayout->addWidget(toolbarWidget); // Add the toolbar to the left.
     mainLayout->addLayout(contentLayout);
 
     // --- Overlay Widgets ---
-    resetZoomButton = new QPushButton("⛶", graphicsView);
+    resetZoomButton = new QPushButton("⚲", graphicsView);
     resetZoomButton->setToolTip("Reset View");
     resetZoomButton->setFixedSize(35, 35);
     resetZoomButton->setStyleSheet(
@@ -720,16 +726,23 @@ void AutomatonEditor::applyStyles()
         "}"
         "QGroupBox QPushButton:hover { background-color: %6; }" // deeper yellow
         "QGroupBox QPushButton:pressed { background-color: %7; }"
+        // --- START OF FIX ---
+        // Add styling for the new toolbar container (which is a QWidget)
+        "QWidget#toolsGroup { "
+        "    background-color: %2; "
+        "    border-right: 1px solid %3; " // Add a border to the right side
+        "}"
         // Specific style for toolbar buttons
-        "QGroupBox#toolsGroup QPushButton { "
+        "QWidget#toolsGroup QPushButton { "
         "    background-color: %5; "
         "    color: %1; " // Black text
         "    border: 1px solid %1; "
         "}"
-        "QGroupBox#toolsGroup QPushButton:hover { background-color: %6; }"
-        "QGroupBox#toolsGroup QPushButton:pressed { background-color: %7; }"
-        "QGroupBox#toolsGroup QPushButton:checked { background-color: %8; color: white; border: 1px solid %1; }"
-        "QGroupBox#toolsGroup QPushButton:checked:hover { background-color: %9; }"
+        "QWidget#toolsGroup QPushButton:hover { background-color: %6; }"
+        "QWidget#toolsGroup QPushButton:pressed { background-color: %7; }"
+        "QWidget#toolsGroup QPushButton:checked { background-color: %8; color: white; border: 1px solid %1; }"
+        "QWidget#toolsGroup QPushButton:checked:hover { background-color: %9; }"
+        // --- END OF FIX ---
         // Fix for invisible labels in side panels
         "QGroupBox QLabel { color: %1; }"
         "QLineEdit, QSpinBox, QTextEdit { "
