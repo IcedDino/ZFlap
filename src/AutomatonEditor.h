@@ -83,6 +83,7 @@ public:
     explicit AutomatonEditor(QWidget *parent = nullptr);
     ~AutomatonEditor() override;
     void loadAutomaton(const QString& name, const std::set<char>& alphabet);
+    void loadFromFile(const QString& filePath);
 
 private slots:
     void onSaveAutomatonClicked();

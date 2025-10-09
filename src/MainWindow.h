@@ -106,6 +106,10 @@ private:
     void createSelectDialog();
     /** @brief Add hover animations (grow + shake) to button */
     void setupButtonAnimation(QPushButton* button);
+    /** @brief Finds and loads a selected automaton by name */
+    void loadSelectedAutomaton(const QString& automatonName);
+    /** @brief Opens the editor with a file loaded */
+    void openEditorWithFile(const QString& filePath);
 
     // Main UI components
     QWidget *centralWidget;              ///< Central widget container
@@ -152,5 +156,3 @@ private:
 };
 
 #endif // MAINWINDOW_H
-
-

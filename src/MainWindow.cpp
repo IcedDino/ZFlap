@@ -498,18 +498,35 @@ void MainWindow::onCreateAutomaton()
 
 void MainWindow::onSelectAutomaton()
 {
-    // Refresh recent automata list each time dialog opens
-    if (automatonList) {
-        QSettings settings("ZFlap", "ZFlap");
-        QStringList recent = settings.value("recentAutomata").toStringList();
-        automatonList->clear();
-        for (const QString &path : recent) {
-            QFileInfo fi(path);
-            QString name = fi.completeBaseName();
-            automatonList->addItem(name);
+    // This slot now handles both showing the dialog AND loading the selected file.
+    // It's triggered by two different buttons.
+
+    // Case 1: The "Seleccionar Automata" button on the main menu was clicked.
+    if (sender() == selectButton) {
+        // Refresh recent automata list each time dialog opens
+        if (automatonList) {
+            QSettings settings("ZFlap", "ZFlap");
+            QStringList recent = settings.value("recentAutomata").toStringList();
+            automatonList->clear();
+            for (const QString &path : recent) {
+                QFileInfo fi(path);
+                QString name = fi.completeBaseName();
+                automatonList->addItem(name);
+            }
         }
+        selectDialog->show();
+        return; // Wait for user to select from the dialog
     }
-    selectDialog->show();
+
+    // Case 2: The "SELECCIONAR" button inside the dialog was clicked.
+    QListWidgetItem *selectedItem = automatonList->currentItem();
+    if (!selectedItem) {
+        QMessageBox::warning(this, "Advertencia", "Por favor seleccione un autómata de la lista.");
+        return;
+    }
+
+    loadSelectedAutomaton(selectedItem->text());
+    selectDialog->hide();
 }
 
 void MainWindow::onSelectAlphabet()
@@ -615,6 +632,30 @@ void MainWindow::onCancelSelect()
     selectDialog->hide();
 }
 
+/**
+ * @brief Finds the file path for a given automaton name and loads it.
+ * @param automatonName The name of the automaton to load.
+ */
+void MainWindow::loadSelectedAutomaton(const QString &automatonName)
+{
+    QSettings settings("ZFlap", "ZFlap");
+    QStringList recent = settings.value("recentAutomata").toStringList();
+    QString filePath;
+
+    for (const QString &path : recent) {
+        if (QFileInfo(path).completeBaseName() == automatonName) {
+            filePath = path;
+            break;
+        }
+    }
+
+    if (filePath.isEmpty()) {
+        QMessageBox::critical(this, "Error", "No se pudo encontrar la ruta del archivo para '" + automatonName + "'.");
+        return;
+    }
+
+    openEditorWithFile(filePath);
+}
 /**
  * @brief Set up hover animations for buttons
  * @param button The QPushButton to apply animations to
@@ -725,4 +766,18 @@ void MainWindow::setupButtonAnimation(QPushButton* button)
 
     AnimatedButton* animatedButton = new AnimatedButton(button);
     button->installEventFilter(animatedButton);
+}
+
+/**
+ * @brief Creates an editor instance and loads an automaton from a file.
+ * @param filePath The path to the .zflap file.
+ */
+void MainWindow::openEditorWithFile(const QString &filePath)
+{
+    automatonEditor = new AutomatonEditor();
+    automatonEditor->loadFromFile(filePath); // Use the new loading function
+    automatonEditor->resize(1024, 768);
+    automatonEditor->show();
+
+    this->hide(); // Hide the main menu
 }

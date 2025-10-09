@@ -1238,6 +1238,99 @@ void AutomatonEditor::onToggleFinalState()
     // Optionally, provide user feedback
 }
 
+/**
+ * @brief Loads an automaton from a .zflap file.
+ * @param filePath The path to the file to load.
+ *
+ * This function parses a .zflap file, reconstructing the automaton's states,
+ * transitions, and visual layout within the editor.
+ */
+void AutomatonEditor::loadFromFile(const QString &filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Error", "Could not open file: " + file.errorString());
+        return;
+    }
+
+    clearAutomaton(); // Reset the editor before loading
+
+    QTextStream in(&file);
+    QString currentSection;
+
+    // Temporary map to find states by name when creating transitions
+    std::map<QString, StateItem*> loadedStates;
+
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.startsWith('#') || line.isEmpty()) continue;
+
+        if (line.startsWith("Automaton:")) {
+            automatonName = line.section(':', 1).trimmed();
+            setWindowTitle("Editor - " + automatonName);
+        } else if (line.startsWith("Alphabet:")) {
+            QStringList chars = line.section(':', 1).trimmed().split(' ', Qt::SkipEmptyParts);
+            for (const QString& ch : chars) {
+                if (!ch.isEmpty()) {
+                    currentAlphabet.insert(ch.at(0).toLatin1());
+                }
+            }
+        } else if (line == "[States]") {
+            currentSection = "States";
+        } else if (line == "[Transitions]") {
+            currentSection = "Transitions";
+        } else {
+            if (currentSection == "States") {
+                QStringList parts = line.split(',');
+                if (parts.size() != 5) continue; // Malformed line
+
+                QString name = parts[0].trimmed();
+                qreal x = parts[1].toDouble();
+                qreal y = parts[2].toDouble();
+                bool isInitial = (parts[3].toInt() == 1);
+                bool isFinal = (parts[4].toInt() == 1);
+
+                auto* state = new StateItem(name);
+                state->setPos(x, y);
+                state->setIsFinal(isFinal);
+                if (isInitial) {
+                    initialState = state;
+                    initialState->setIsInitial(true);
+                }
+
+                scene->addItem(state);
+                stateItems[name] = state;
+                loadedStates[name] = state;
+
+                // Keep stateCounter updated to avoid name collisions
+                bool ok;
+                int num = name.mid(1).toInt(&ok);
+                if (ok) {
+                    stateCounter = std::max(stateCounter, num + 1);
+                }
+
+            } else if (currentSection == "Transitions") {
+                QStringList parts = line.split(',');
+                if (parts.size() != 3) continue; // Malformed line
+
+                QString fromName = parts[0].trimmed();
+                QString toName = parts[1].trimmed();
+                QString symbols = parts[2].trimmed();
+
+                if (loadedStates.count(fromName) && loadedStates.count(toName)) {
+                    StateItem* start = loadedStates[fromName];
+                    StateItem* end = loadedStates[toName];
+                    auto* transition = new TransitionItem(start, end);
+                    transition->setSymbol(symbols);
+                    scene->addItem(transition);
+                    connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
+                }
+            }
+        }
+    }
+    file.close();
+    rebuildTransitionHandler(); // Build the logic backend from the loaded items
+}
+
 void AutomatonEditor::onSaveAutomatonClicked() {
     resetEditorState();
     if (!initialState) {
@@ -1266,30 +1359,29 @@ void AutomatonEditor::onSaveAutomatonClicked() {
 
     QTextStream out(&file);
 
-    // Guardar información básica
+    // --- NEW SAVE FORMAT ---
+    out << "# ZFlap Automaton File v2.0\n";
     out << "Automaton: " << automatonName << "\n";
     out << "Alphabet: ";
     for (char c : currentAlphabet) out << c << " ";
     out << "\n";
 
-    out << "Initial: " << initialState->getName() << "\n";
-
-    out << "Finals: ";
-    for (const auto &[name, state] : stateItems)
-        if (state->isFinal()) out << QString::fromStdString(name.toStdString()) << " ";
+    out << "[States]\n";
+    out << "# name, x, y, initial, final\n";
+    for (const auto& [name, state] : stateItems) {
+        out << name << "," << state->pos().x() << "," << state->pos().y() << ","
+            << (state->isInitial() ? "1" : "0") << "," << (state->isFinal() ? "1" : "0") << "\n";
+    }
     out << "\n";
 
-    // Guardar transiciones
-    out << "Transitions:\n";
+    out << "[Transitions]\n";
+    out << "# from, to, symbol(s)\n";
     for (auto *item : scene->items()) {
         auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
         if (!transition) continue;
-
-        QString from = transition->getStartItem()->getName();
-        QString to = transition->getEndItem()->getName();
-        QString symbol = transition->getSymbol();
-        out << from << " --" << symbol << "--> " << to << "\n";
+        out << transition->getStartItem()->getName() << "," << transition->getEndItem()->getName() << "," << transition->getSymbol() << "\n";
     }
+    // --- END OF NEW FORMAT ---
 
     file.close();
     QMessageBox::information(this, "Guardado", "El autómata se guardó correctamente en:\n" + fileName);
