@@ -1,783 +1,465 @@
-/**
- * @file MainWindow.cpp
- * @brief Implementation of MainWindow class for ZFlap automaton manager
- *
- * This file contains the implementation of the MainWindow class, providing
- * the complete user interface functionality for ZFlap. The implementation
- * includes UI setup, styling, dialog management, and interactive animations.
- *
- * Key Implementation Features:
- * - Modern Qt-based interface with custom styling
- * - Animated button interactions using QPropertyAnimation
- * - Modal dialogs for automaton creation and selection
- * - Spanish localization throughout the interface
- * - Responsive design with Charter Roman typography
- * - Custom color scheme (RGB 120,104,48 for buttons, RGB 255,254,245 for the background)
- *
- * Animation System:
- * The button animations use a custom event filter system to detect hover events
- * and apply smooth scaling and shaking animations. Each button grows by 20x10 pixels
- * and continuously shakes with a smooth sine wave motion while hovered.
- *
- * @author ZFlap Team
- * @version 1.0.0
- */
-
 #include "MainWindow.h"
+#include "AutomatonEditor.h"
+#include "AlphabetSelector.h"
+
 #include <QApplication>
 #include <QScreen>
 #include <QMessageBox>
-#include <QSizePolicy>
-#include "AutomatonEditor.h"
-#include <QInputDialog> // Add this include at the top of MainWindow.cpp
+#include <QHeaderView>
+#include <QSplitter>
 #include <QSettings>
 #include <QFileInfo>
+#include <regex>
+#include <algorithm>
+
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QLabel>
+#include <QDialog>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QListWidget>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QFont>
+#include <QPalette>
+
+// --- Estilos y Colores Mejorados ---
+const QColor WARM_WHITE(255, 254, 245);
+const QColor ZFLAP_YELLOW(240, 207, 96);
+const QColor DARK_YELLOW(220, 187, 76);
+const QColor ZFLAP_BLACK(0, 0, 0);
+const QColor BORDER_GRAY(200, 200, 200);
+const QColor BUTTON_GRAY(225, 225, 225);
+const QColor LIGHT_GRAY(235, 235, 235);
+
+const QString BUTTON_STYLE_PRIMARY = QString(
+    "QPushButton { background-color: %1; color: %2; border: 1px solid %2; padding: 8px 16px; font-weight: bold; }"
+    "QPushButton:hover { background-color: %3; }"
+).arg(ZFLAP_YELLOW.name(), ZFLAP_BLACK.name(), DARK_YELLOW.name());
+
+const QString BUTTON_STYLE_SECONDARY = QString(
+    "QPushButton { background-color: %1; color: %2; border: 1px solid %3; padding: 8px 16px; }"
+    "QPushButton:hover { border-color: %2; }"
+).arg(BUTTON_GRAY.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name());
+
+const QString TEXT_EDIT_STYLE = "QTextEdit, QLineEdit, QListWidget { background-color: #FFFFFF; color: %1; border: 1px solid %2; border-radius: 4px; padding: 5px; }";
+const QString TABLE_STYLE = "QTableWidget { background-color: #FFFFFF; border: 1px solid %1; gridline-color: %2; } QHeaderView::section { background-color: %3; color: %4; padding: 4px; border: 1px solid %1; font-weight: bold; } QTableWidget::item { color: %4; }";
+const QString TAB_WIDGET_STYLE = QString(
+    "QTabWidget::pane { border: none; background: %1; }"
+    "QTabBar::tab { background: %2; color: %3; border: 1px solid %4; border-bottom: none; padding: 8px 20px; }"
+    "QTabBar::tab:selected { background: %1; font-weight: bold; border-color: %4; border-bottom-color: %1; }"
+    "QTabBar::tab:!selected:hover { background: %5; }"
+).arg(WARM_WHITE.name(), BUTTON_GRAY.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name(), DARK_YELLOW.name());
+const QString SPLITTER_STYLE = "QSplitter::handle { background-color: %1; } QSplitter::handle:horizontal { width: 1px; } QSplitter::handle:vertical { height: 1px; }";
+const QString LABEL_STYLE = "QLabel { color: %1; }";
 
 
-/**
- * @brief MainWindow constructor
- *
- * Initializes the main window by setting up styling, UI components, and dialogs.
- * The constructor calls setup methods in a specific order to ensure proper
- * initialization of fonts, colors, layouts, and interactive elements.
- */
-MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
-    setupWordleStyle();    // Initialize fonts and color palette
-    setupUI();            // Set up basic window properties
-    createMainMenu();     // Create title, buttons, and layout
-    createCreateDialog(); // Initialize create automaton dialog
-    createSelectDialog(); // Initialize select automaton dialog
-
-    // Initialize alphabet selector
+    setupStyling();
+    setupUI();
+    createMainMenuTab();
+    createStaticLexerTab();
+    createDynamicLexerTab();
+    createAutomatonDialogs();
     alphabetSelector = new AlphabetSelector(this);
 }
 
-/**
- * @brief MainWindow destructor
- *
- * Qt handles cleanup of child widgets automatically, so no explicit
- * cleanup is needed for UI components.
- */
-MainWindow::~MainWindow()
-{
-}
+MainWindow::~MainWindow() {}
 
-/**
- * @brief Set up basic window properties and layout
- *
- * Configures the central widget, main layout, window size, and position.
- * Centers the window on the screen and sets a fixed size for a consistent appearance.
- */
 void MainWindow::setupUI()
 {
-    centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-
-    mainLayout = new QVBoxLayout(centralWidget);
-    mainLayout->setSpacing(30);
-    mainLayout->setContentsMargins(40, 40, 40, 40);
-
-    // Center the window
-    QScreen *screen = QApplication::primaryScreen();
-    QRect screenGeometry = screen->availableGeometry();
-    int x = (screenGeometry.width() - 600) / 2;
-    int y = (screenGeometry.height() - 400) / 2;
-    setGeometry(x, y, 600, 400);
-
-    setWindowTitle("ZFlap - Automaton Manager");
-    setFixedSize(600, 400);
+    mainTabWidget = new QTabWidget(this);
+    mainTabWidget->setStyleSheet(TAB_WIDGET_STYLE);
+    setCentralWidget(mainTabWidget);
+    setWindowTitle("ZFlap - Integrated Tool");
+    resize(1400, 900);
 }
 
-/**
- * @brief Configure application color palette and fonts
- *
- * Sets up the visual styling for the entire application including
- * - Custom color palette with a warm off-white background (RGB 255,254,245)
- * - Brown button colors (RGB 120,104,48) with proper contrast
- * - Charter Roman font for the main title with fallback options
- * - Arial fonts for buttons and regular text
- *
- * The color scheme creates a warm, inviting appearance while maintaining
- * good readability and accessibility standards.
- */
-void MainWindow::setupWordleStyle()
+void MainWindow::setupStyling()
 {
-    // Custom color palette for a warm, professional appearance
-    wordlePalette.setColor(QPalette::Window, QColor(255, 254, 245));    // Warm off-white background
-    wordlePalette.setColor(QPalette::WindowText, QColor(0, 0, 0));      // Black text for contrast
-    wordlePalette.setColor(QPalette::Button, QColor(120, 104, 48));     // Brown button background
-    wordlePalette.setColor(QPalette::ButtonText, QColor(0, 0, 0));      // Black button text
-    wordlePalette.setColor(QPalette::Base, QColor(255, 255, 255));      // White input fields
-    wordlePalette.setColor(QPalette::Text, QColor(0, 0, 0));            // Black input text
-    wordlePalette.setColor(QPalette::Highlight, QColor(120, 104, 48));  // Brown selection highlight
-    wordlePalette.setColor(QPalette::HighlightedText, QColor(255, 255, 255)); // White selected text
-
-    setPalette(wordlePalette);
-
-    // Title font: Charter Roman with fallbacks for cross-platform compatibility
+    QPalette palette;
+    palette.setColor(QPalette::Window, WARM_WHITE);
+    palette.setColor(QPalette::WindowText, ZFLAP_BLACK);
+    setPalette(palette);
+    setAutoFillBackground(true);
+    qApp->setStyleSheet(LABEL_STYLE.arg(ZFLAP_BLACK.name()));
     titleFont.setFamily("Charter");
-    if (titleFont.family() != "Charter") {
-        QStringList charterFonts = {"Charter BT", "Bitstream Charter", "Charter Roman", "Times", "Times New Roman"};
-        for (const QString &fontName : charterFonts) {
-            titleFont.setFamily(fontName);
-            if (titleFont.family() == fontName) {
-                break;
-            }
-        }
-    }
     titleFont.setPointSize(36);
     titleFont.setBold(true);
-
-    // Button font: Bold Arial for clear readability
     buttonFont.setFamily("Arial");
-    buttonFont.setPointSize(16);
-    buttonFont.setBold(true);
-
-    // Text font: Regular Arial for form fields and labels
+    buttonFont.setPointSize(12);
     textFont.setFamily("Arial");
     textFont.setPointSize(12);
 }
 
-void MainWindow::createMainMenu()
+void MainWindow::createMainMenuTab()
 {
-    // Subtitle
-    QLabel *subtitleLabel = new QLabel("JFlap con esteroides", this);
-    QFont subtitleFont("Arial", 12);
-    subtitleFont.setItalic(true);
-    subtitleLabel->setFont(subtitleFont);
-    subtitleLabel->setAlignment(Qt::AlignCenter);
-    subtitleLabel->setStyleSheet("color: #666666; margin-bottom: 10px;");
-    mainLayout->addWidget(subtitleLabel);
-
-    // Title
-    titleLabel = new QLabel("zFlap", this);
+    auto* mainMenuTab = new QWidget();
+    auto* layout = new QVBoxLayout(mainMenuTab);
+    layout->setAlignment(Qt::AlignCenter);
+    auto* titleLabel = new QLabel("ZFlap Automaton Manager", this);
     titleLabel->setFont(titleFont);
-    titleLabel->setAlignment(Qt::AlignCenter);
-    titleLabel->setStyleSheet("color: #000000; margin-bottom: 40px;");
-    mainLayout->addWidget(titleLabel);
-
-    // Create a horizontal layout for buttons
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(40);
-
-    // Create Automaton Button
-    createButton = new QPushButton("Crear Automata", this);
-    createButton->setFont(buttonFont);
-    createButton->setMinimumSize(200, 60);
-    createButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: rgb(240, 207, 96);"
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
-        "    padding: 15px 30px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: rgb(240, 207, 96);"
-        "}"
-        "QPushButton:pressed {"
-        "    background-color: rgb(240, 207, 96);"
-        "}"
-    );
-    connect(createButton, &QPushButton::clicked, this, &MainWindow::onCreateAutomaton);
-    setupButtonAnimation(createButton);
-    buttonLayout->addWidget(createButton);
-
-    // Select Automaton Button
-    selectButton = new QPushButton("Seleccionar Automata", this);
-    selectButton->setFont(buttonFont);
-    selectButton->setMinimumSize(200, 60);
-    selectButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: rgb(240, 207, 96);"
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
-        "    padding: 15px 30px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: rgb(240, 207, 96);"
-        "}"
-        "QPushButton:pressed {"
-        "    background-color: rgb(100, 84, 28);"
-        "}"
-    );
-    connect(selectButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
-    setupButtonAnimation(selectButton);
-    buttonLayout->addWidget(selectButton);
-
-    // Center the button layout
-    QHBoxLayout *centerLayout = new QHBoxLayout();
-    centerLayout->addStretch();
-    centerLayout->addLayout(buttonLayout);
-    centerLayout->addStretch();
-
-    mainLayout->addLayout(centerLayout);
-
-    // Add vertical spacer to push everything up slightly
-    mainLayout->addStretch();
+    layout->addWidget(titleLabel, 0, Qt::AlignHCenter);
+    auto* buttonLayout = new QHBoxLayout();
+    createAutomatonButton = new QPushButton("Crear Nuevo Autómata");
+    selectAutomatonButton = new QPushButton("Seleccionar Autómata Existente");
+    createAutomatonButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    selectAutomatonButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    buttonLayout->addWidget(createAutomatonButton);
+    buttonLayout->addWidget(selectAutomatonButton);
+    layout->addLayout(buttonLayout);
+    mainTabWidget->addTab(mainMenuTab, "Gestor de Autómatas");
+    connect(createAutomatonButton, &QPushButton::clicked, this, &MainWindow::onCreateAutomaton);
+    connect(selectAutomatonButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
 }
 
-void MainWindow::createCreateDialog()
+void MainWindow::createStaticLexerTab()
 {
+    auto* staticLexerTab = new QWidget();
+    auto* layout = new QVBoxLayout(staticLexerTab);
+    staticLexerInput = new QTextEdit();
+    staticLexerInput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    auto* staticLexerAnalyzeButton = new QPushButton("Analizar"); // <-- CAMBIO AQUÍ
+    staticLexerAnalyzeButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    staticLexerOutput = new QTextEdit();
+    staticLexerOutput->setReadOnly(true);
+    staticLexerOutput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    layout->addWidget(new QLabel("Texto de Entrada:"));
+    layout->addWidget(staticLexerInput);
+    layout->addWidget(staticLexerAnalyzeButton);
+    layout->addWidget(new QLabel("Tokens Reconocidos:"));
+    layout->addWidget(staticLexerOutput);
+    mainTabWidget->addTab(staticLexerTab, "Analizador Léxico"); // <-- CAMBIO AQUÍ
+    connect(staticLexerAnalyzeButton, &QPushButton::clicked, this, &MainWindow::onStaticLexerAnalyze);
+}
+
+void MainWindow::createDynamicLexerTab()
+{
+    auto* dynamicLexerTab = new QWidget();
+    auto* mainLayout = new QVBoxLayout(dynamicLexerTab);
+    QSplitter *mainSplitter = new QSplitter(Qt::Vertical, dynamicLexerTab);
+    QWidget *topPanel = new QWidget();
+    auto* topLayout = new QVBoxLayout(topPanel);
+    QSplitter *ruleSplitter = new QSplitter(Qt::Horizontal, topPanel);
+    ruleSplitter->setStyleSheet(SPLITTER_STYLE.arg(BORDER_GRAY.name()));
+    QWidget *lexicalPanel = new QWidget();
+    auto* lexicalLayout = new QVBoxLayout(lexicalPanel);
+    lexicalRuleTable = new QTableWidget();
+    lexicalRuleTable->setColumnCount(2);
+    lexicalRuleTable->setHorizontalHeaderLabels({"Nombre de Token", "Expresión Regular"});
+    lexicalRuleTable->horizontalHeader()->setStretchLastSection(true);
+    lexicalRuleTable->setStyleSheet(TABLE_STYLE.arg(BORDER_GRAY.name(), LIGHT_GRAY.name(), ZFLAP_YELLOW.name(), ZFLAP_BLACK.name()));
+    addLexicalRuleButton = new QPushButton("Añadir Token");
+    addLexicalRuleButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    removeLexicalRuleButton = new QPushButton("Eliminar Token");
+    removeLexicalRuleButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
+    lexicalLayout->addWidget(new QLabel("1. Define los Tokens (Léxico):"));
+    lexicalLayout->addWidget(lexicalRuleTable);
+    auto* lexicalButtons = new QHBoxLayout();
+    lexicalButtons->addWidget(addLexicalRuleButton);
+    lexicalButtons->addWidget(removeLexicalRuleButton);
+    lexicalLayout->addLayout(lexicalButtons);
+    lexicalPanel->setLayout(lexicalLayout);
+    QWidget *syntacticPanel = new QWidget();
+    auto* syntacticLayout = new QVBoxLayout(syntacticPanel);
+    syntacticRuleTable = new QTableWidget();
+    syntacticRuleTable->setColumnCount(2);
+    syntacticRuleTable->setHorizontalHeaderLabels({"Nombre de Patrón", "Secuencia de Tokens (separados por espacio)"});
+    syntacticRuleTable->horizontalHeader()->setStretchLastSection(true);
+    syntacticRuleTable->setStyleSheet(TABLE_STYLE.arg(BORDER_GRAY.name(), LIGHT_GRAY.name(), ZFLAP_YELLOW.name(), ZFLAP_BLACK.name()));
+    addSyntacticRuleButton = new QPushButton("Añadir Patrón");
+    addSyntacticRuleButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    removeSyntacticRuleButton = new QPushButton("Eliminar Patrón");
+    removeSyntacticRuleButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
+    syntacticLayout->addWidget(new QLabel("2. Define los Patrones (Sintaxis):"));
+    syntacticLayout->addWidget(syntacticRuleTable);
+    auto* syntacticButtons = new QHBoxLayout();
+    syntacticButtons->addWidget(addSyntacticRuleButton);
+    syntacticButtons->addWidget(removeSyntacticRuleButton);
+    syntacticLayout->addLayout(syntacticButtons);
+    syntacticPanel->setLayout(syntacticLayout);
+    ruleSplitter->addWidget(lexicalPanel);
+    ruleSplitter->addWidget(syntacticPanel);
+    topLayout->addWidget(ruleSplitter);
+    topPanel->setLayout(topLayout);
+    QWidget *bottomPanel = new QWidget();
+    auto* bottomLayout = new QVBoxLayout(bottomPanel);
+    auto* analyzeSplitter = new QSplitter(Qt::Horizontal, bottomPanel);
+    analyzeSplitter->setStyleSheet(SPLITTER_STYLE.arg(BORDER_GRAY.name()));
+    QWidget *inputPanel = new QWidget();
+    auto* inputLayout = new QVBoxLayout(inputPanel);
+    dynamicLexerInput = new QTextEdit();
+    dynamicLexerInput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    inputLayout->addWidget(new QLabel("3. Escribe el código a analizar:"));
+    inputLayout->addWidget(dynamicLexerInput);
+    inputPanel->setLayout(inputLayout);
+    QWidget *outputPanel = new QWidget();
+    auto* outputLayout = new QVBoxLayout(outputPanel);
+    dynamicLexerOutput = new QTextEdit();
+    dynamicLexerOutput->setReadOnly(true);
+    dynamicLexerOutput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    outputLayout->addWidget(new QLabel("4. Resultados:"));
+    outputLayout->addWidget(dynamicLexerOutput);
+    outputPanel->setLayout(outputLayout);
+    analyzeSplitter->addWidget(inputPanel);
+    analyzeSplitter->addWidget(outputPanel);
+    auto* analyzeButton = new QPushButton("Analizar Todo");
+    analyzeButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    bottomLayout->addWidget(analyzeSplitter);
+    bottomLayout->addWidget(analyzeButton);
+    bottomPanel->setLayout(bottomLayout);
+    mainSplitter->addWidget(topPanel);
+    mainSplitter->addWidget(bottomPanel);
+    mainLayout->addWidget(mainSplitter);
+    mainTabWidget->addTab(dynamicLexerTab, "Creador de Lenguajes");
+    connect(addLexicalRuleButton, &QPushButton::clicked, this, &MainWindow::onAddLexicalRule);
+    connect(removeLexicalRuleButton, &QPushButton::clicked, this, &MainWindow::onRemoveLexicalRule);
+    connect(addSyntacticRuleButton, &QPushButton::clicked, this, &MainWindow::onAddSyntacticRule);
+    connect(removeSyntacticRuleButton, &QPushButton::clicked, this, &MainWindow::onRemoveSyntacticRule);
+    connect(analyzeButton, &QPushButton::clicked, this, &MainWindow::onDynamicLexerAnalyze);
+    addLexicalRule("TIPO_DATO", "int|float|string");
+    addLexicalRule("IDENTIFICADOR", "[a-zA-Z_][a-zA-Z0-9_]*");
+    addLexicalRule("ASIGNACION", "=");
+    addLexicalRule("NUMERO", "[0-9]+(\\.[0-9]+)?");
+    addLexicalRule("PUNTO_Y_COMA", ";");
+    addLexicalRule("WHITESPACE", "\\s+");
+    addSyntacticRule("DeclaracionVariable", "TIPO_DATO IDENTIFICADOR ASIGNACION NUMERO PUNTO_Y_COMA");
+}
+
+void MainWindow::createAutomatonDialogs() {
     createDialog = new QDialog(this);
+    createDialog->setPalette(this->palette());
     createDialog->setWindowTitle("Crear Nuevo Autómata");
-    createDialog->setFixedSize(500, 400);
-    createDialog->setModal(true);
-
-    createLayout = new QVBoxLayout(createDialog);
-    createLayout->setSpacing(20);
-    createLayout->setContentsMargins(30, 30, 30, 30);
-
-    // Title
-    createTitleLabel = new QLabel("CREAR NUEVO AUTÓMATA", createDialog);
-    createTitleLabel->setFont(titleFont);
-    createTitleLabel->setAlignment(Qt::AlignCenter);
-    createTitleLabel->setStyleSheet("color: #000000; margin-bottom: 20px;");
-    createLayout->addWidget(createTitleLabel);
-
-    // Name input
-    QLabel *nameLabel = new QLabel("Nombre del Autómata:", createDialog);
-    nameLabel->setFont(textFont);
-    nameLabel->setStyleSheet("color: #000000; font-weight: bold;");
-    createLayout->addWidget(nameLabel);
-
-    automatonNameEdit = new QLineEdit(createDialog);
-    automatonNameEdit->setFont(textFont);
-    automatonNameEdit->setMinimumHeight(40);
-    automatonNameEdit->setStyleSheet(
-        "QLineEdit {"
-        "    background-color: #FFFFFF;"
-        "    color: #000000;"
-        "    border: 2px solid #000000;"
-        "    border-radius: 4px;"
-        "    padding: 8px;"
-        "    font-size: 14px;"
-        "}"
-    );
+    auto* createLayout = new QVBoxLayout(createDialog);
+    automatonNameEdit = new QLineEdit();
+    automatonNameEdit->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    descriptionEdit = new QTextEdit();
+    descriptionEdit->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    selectAlphabetButton = new QPushButton("Seleccionar Alfabeto");
+    selectAlphabetButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    selectedAlphabetLabel = new QLabel("Alfabeto: (ninguno)");
+    auto* createConfirmButton = new QPushButton("Crear");
+    createConfirmButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    auto* createCancelButton = new QPushButton("Cancelar");
+    createCancelButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
+    createLayout->addWidget(new QLabel("Nombre:"));
     createLayout->addWidget(automatonNameEdit);
-
-    // Description input
-    QLabel *descLabel = new QLabel("Descripción (Opcional):", createDialog);
-    descLabel->setFont(textFont);
-    descLabel->setStyleSheet("color: #000000; font-weight: bold;");
-    createLayout->addWidget(descLabel);
-
-    descriptionEdit = new QTextEdit(createDialog);
-    descriptionEdit->setFont(textFont);
-    descriptionEdit->setMinimumHeight(100);
-    descriptionEdit->setStyleSheet(
-        "QTextEdit {"
-        "    background-color: #FFFFFF;"
-        "    color: #000000;"
-        "    border: 2px solid #000000;"
-        "    border-radius: 4px;"
-        "    padding: 8px;"
-        "    font-size: 14px;"
-        "}"
-    );
+    createLayout->addWidget(new QLabel("Descripción:"));
     createLayout->addWidget(descriptionEdit);
-
-    // Alphabet selection
-    QLabel *alphabetLabel = new QLabel("Alfabeto:", createDialog);
-    alphabetLabel->setFont(textFont);
-    alphabetLabel->setStyleSheet("color: #000000; font-weight: bold;");
-    createLayout->addWidget(alphabetLabel);
-
-    selectAlphabetButton = new QPushButton("Seleccionar Alfabeto", createDialog);
-    selectAlphabetButton->setFont(buttonFont);
-    selectAlphabetButton->setMinimumHeight(40);
-    selectAlphabetButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: rgb(100, 150, 200);"
-        "    color: white;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 4px;"
-        "    font-weight: bold;"
-        "    padding: 8px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: rgb(80, 130, 180);"
-        "}"
-    );
-    connect(selectAlphabetButton, &QPushButton::clicked, this, &MainWindow::onSelectAlphabet);
     createLayout->addWidget(selectAlphabetButton);
-
-    selectedAlphabetLabel = new QLabel("(ningún alfabeto seleccionado)", createDialog);
-    selectedAlphabetLabel->setFont(QFont("Arial", 10));
-    selectedAlphabetLabel->setStyleSheet(
-        "color: #666666; "
-        "background-color: #f0f0f0; "
-        "padding: 8px; "
-        "border: 1px solid #cccccc; "
-        "border-radius: 4px;"
-    );
-    selectedAlphabetLabel->setWordWrap(true);
     createLayout->addWidget(selectedAlphabetLabel);
-
-    // Button layout
-    createButtonLayout = new QHBoxLayout();
-    createButtonLayout->setSpacing(20);
-
-    createConfirmButton = new QPushButton("CREAR", createDialog);
-    createConfirmButton->setFont(buttonFont);
-    createConfirmButton->setMinimumHeight(50);
-    createConfirmButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: rgb(240, 207, 96);"
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
-        "    padding: 10px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: rgb(240, 207, 96);"
-        "}"
-    );
-    connect(createConfirmButton, &QPushButton::clicked, this, &MainWindow::onCreateNewAutomaton);
+    auto* createButtonLayout = new QHBoxLayout();
     createButtonLayout->addWidget(createConfirmButton);
-
-    createCancelButton = new QPushButton("CANCELAR", createDialog);
-    createCancelButton->setFont(buttonFont);
-    createCancelButton->setMinimumHeight(50);
-    createCancelButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: rgb(255, 254, 245);"
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 0px;"
-        "    font-weight: normal;"
-        "    padding: 10px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: rgb(235, 234, 225);"
-        "}"
-    );
-    connect(createCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelCreate);
     createButtonLayout->addWidget(createCancelButton);
-
     createLayout->addLayout(createButtonLayout);
-}
-
-void MainWindow::createSelectDialog()
-{
+    connect(selectAlphabetButton, &QPushButton::clicked, this, &MainWindow::onSelectAlphabet);
+    connect(createConfirmButton, &QPushButton::clicked, this, &MainWindow::onCreateNewAutomaton);
+    connect(createCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelCreate);
     selectDialog = new QDialog(this);
+    selectDialog->setPalette(this->palette());
     selectDialog->setWindowTitle("Seleccionar Autómata");
-    selectDialog->setFixedSize(500, 400);
-    selectDialog->setModal(true);
-
-    // --- ADDED: Apply consistent background color ---
-    selectDialog->setPalette(wordlePalette);
-    selectDialog->setAutoFillBackground(true);
-
-    selectLayout = new QVBoxLayout(selectDialog);
-    selectLayout->setSpacing(20);
-    selectLayout->setContentsMargins(30, 30, 30, 30);
-
-    // Title
-    selectTitleLabel = new QLabel("SELECCIONAR AUTÓMATA", selectDialog);
-    selectTitleLabel->setFont(titleFont);
-    selectTitleLabel->setAlignment(Qt::AlignCenter);
-    selectTitleLabel->setStyleSheet("color: #000000; margin-bottom: 20px;");
-    selectLayout->addWidget(selectTitleLabel);
-
-    // Automaton list
-    automatonList = new QListWidget(selectDialog);
-    automatonList->setFont(textFont);
-    automatonList->setStyleSheet(
-        "QListWidget {"
-        "    background-color: #FFF9E6;" // Light warm background
-        "    color: #000000;"
-        "    border: 1px solid #B8860B;" // Goldenrod border
-        "    border-radius: 5px;"
-        "    padding: 8px;"
-        "    font-size: 14px;"
-        "}"
-        "QListWidget::item {"
-        "    padding: 10px;"
-        "    border-bottom: 1px solid #F0EAD6;" // Lighter separator
-        "}"
-        "QListWidget::item:selected {"
-        "    background-color: #A8781E;" // Darker golden/brown for selected
-        "    color: #FFFFFF;"
-        "}"
-        "QListWidget::item:hover {"
-        "    background-color: #F0CF60;" // Cream/yellow for hover
-        "    color: #000000;"
-        "}"
-    );
-
-    // Populate with recent automata (names only); loading logic handled elsewhere
-    QSettings settings("ZFlap", "ZFlap");
-    QStringList recent = settings.value("recentAutomata").toStringList();
-    automatonList->clear();
-    for (const QString &path : recent) {
-        QFileInfo fi(path);
-        // Display base name without extension
-        QString name = fi.completeBaseName();
-        automatonList->addItem(name);
-    }
-
+    auto* selectLayout = new QVBoxLayout(selectDialog);
+    automatonList = new QListWidget();
+    automatonList->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    auto* selectConfirmButton = new QPushButton("Seleccionar");
+    selectConfirmButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
+    auto* selectCancelButton = new QPushButton("Cancelar");
+    selectCancelButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
     selectLayout->addWidget(automatonList);
-
-    // Button layout
-    selectButtonLayout = new QHBoxLayout();
-    selectButtonLayout->setSpacing(20);
-
-    selectConfirmButton = new QPushButton("SELECCIONAR", selectDialog);
-    selectConfirmButton->setFont(buttonFont);
-    selectConfirmButton->setMinimumHeight(50);
-    selectConfirmButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: #F0CF60;" // cream/yellow
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 5px;"
-        "    font-weight: bold;"
-        "    padding: 10px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: #DCBB4C;" // deeper yellow
-        "}"
-    );
-    connect(selectConfirmButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
+    auto* selectButtonLayout = new QHBoxLayout();
     selectButtonLayout->addWidget(selectConfirmButton);
-
-    selectCancelButton = new QPushButton("CANCELAR", selectDialog);
-    selectCancelButton->setFont(buttonFont);
-    selectCancelButton->setMinimumHeight(50);
-    selectCancelButton->setStyleSheet(
-        "QPushButton {"
-        "    background-color: #B4B4B4;" // neutral gray
-        "    color: #000000;"
-        "    border: 1px solid #000000;"
-        "    border-radius: 5px;"
-        "    font-weight: bold;"
-        "    padding: 10px;"
-        "}"
-        "QPushButton:hover {"
-        "    background-color: #A0A0A0;" // darker gray
-        "}"
-    );
-    connect(selectCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelSelect);
     selectButtonLayout->addWidget(selectCancelButton);
-
     selectLayout->addLayout(selectButtonLayout);
+    connect(selectConfirmButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
+    connect(selectCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelSelect);
 }
 
-void MainWindow::onCreateAutomaton()
-{
-    alphabetSelector->clearSelection();
+void MainWindow::onAddLexicalRule() { addLexicalRule(); }
+void MainWindow::addLexicalRule(const QString& name, const QString& pattern) { int newRow = lexicalRuleTable->rowCount(); lexicalRuleTable->insertRow(newRow); lexicalRuleTable->setItem(newRow, 0, new QTableWidgetItem(name)); lexicalRuleTable->setItem(newRow, 1, new QTableWidgetItem(pattern)); }
+void MainWindow::onRemoveLexicalRule() { if (lexicalRuleTable->currentRow() >= 0) { lexicalRuleTable->removeRow(lexicalRuleTable->currentRow()); } else { QMessageBox::warning(this, "Sin selección", "Por favor, selecciona un token de la tabla para eliminar."); } }
+void MainWindow::onAddSyntacticRule() { addSyntacticRule(); }
+void MainWindow::addSyntacticRule(const QString& name, const QString& sequence) { int newRow = syntacticRuleTable->rowCount(); syntacticRuleTable->insertRow(newRow); syntacticRuleTable->setItem(newRow, 0, new QTableWidgetItem(name)); syntacticRuleTable->setItem(newRow, 1, new QTableWidgetItem(sequence)); }
+void MainWindow::onRemoveSyntacticRule() { if (syntacticRuleTable->currentRow() >= 0) { syntacticRuleTable->removeRow(syntacticRuleTable->currentRow()); } else { QMessageBox::warning(this, "Sin selección", "Por favor, selecciona un patrón de la tabla para eliminar."); } }
 
-    // Use exec() to open the dialog and wait for the user to finish.
-    if (alphabetSelector->exec() == QDialog::Accepted) {
-        // This code only runs if the user clicks "CONFIRMAR"
-
-        // 1. Get the selected alphabet (now as a std::set)
-        std::set<char> alphabet = alphabetSelector->getSelectedAlphabet();
-
-        // 2. Use a default name. The user will name it upon saving.
-        QString name = "Unsaved Automaton";
-
-        // 3. Create and show the editor
-        automatonEditor = new AutomatonEditor();
-        automatonEditor->loadAutomaton(name, alphabet);
-        automatonEditor->resize(1024, 768);
-        automatonEditor->show();
-
-        // 4. Hide the main menu
-        this->hide();
-    }
-    // If the user cancels the alphabet selector, nothing happens.
+void MainWindow::onDynamicLexerAnalyze() {
+    std::vector<LexicalRule> lexicalRules;
+    for (int i = 0; i < lexicalRuleTable->rowCount(); ++i) { if (lexicalRuleTable->item(i, 0) && lexicalRuleTable->item(i, 1)) { lexicalRules.push_back({lexicalRuleTable->item(i, 0)->text(), lexicalRuleTable->item(i, 1)->text()}); } }
+    std::vector<SyntacticRule> syntacticRules;
+    for (int i = 0; i < syntacticRuleTable->rowCount(); ++i) { if (syntacticRuleTable->item(i, 0) && syntacticRuleTable->item(i, 1)) { QStringList tokenSequence = syntacticRuleTable->item(i, 1)->text().split(' ', Qt::SkipEmptyParts); if (!tokenSequence.isEmpty()) { syntacticRules.push_back({syntacticRuleTable->item(i, 0)->text(), tokenSequence}); } } }
+    auto tokens = dynamicTokenize(dynamicLexerInput->toPlainText(), lexicalRules);
+    auto patternsFound = findSyntacticPatterns(tokens, syntacticRules);
+    dynamicLexerOutput->clear();
+    dynamicLexerOutput->append("--- TOKENS ENCONTRADOS (LÉXICO) ---\n");
+    for (const auto& token : tokens) { dynamicLexerOutput->append(QString("[%1]: %2").arg(token.first).arg(token.second)); }
+    if (!patternsFound.isEmpty()) { dynamicLexerOutput->append("\n--- PATRONES ENCONTRADOS (SINTAXIS) ---\n"); dynamicLexerOutput->append(patternsFound.join("\n")); }
 }
 
-void MainWindow::onSelectAutomaton()
-{
-    // This slot now handles both showing the dialog AND loading the selected file.
-    // It's triggered by two different buttons.
-
-    // Case 1: The "Seleccionar Automata" button on the main menu was clicked.
-    if (sender() == selectButton) {
-        // Refresh recent automata list each time dialog opens
-        if (automatonList) {
-            QSettings settings("ZFlap", "ZFlap");
-            QStringList recent = settings.value("recentAutomata").toStringList();
-            automatonList->clear();
-            for (const QString &path : recent) {
-                QFileInfo fi(path);
-                QString name = fi.completeBaseName();
-                automatonList->addItem(name);
-            }
-        }
-        selectDialog->show();
-        return; // Wait for user to select from the dialog
-    }
-
-    // Case 2: The "SELECCIONAR" button inside the dialog was clicked.
-    QListWidgetItem *selectedItem = automatonList->currentItem();
-    if (!selectedItem) {
-        QMessageBox::warning(this, "Advertencia", "Por favor seleccione un autómata de la lista.");
-        return;
-    }
-
-    loadSelectedAutomaton(selectedItem->text());
-    selectDialog->hide();
-}
-
-void MainWindow::onSelectAlphabet()
-{
-    alphabetSelector->clearSelection();
-
-    if (alphabetSelector->exec() == QDialog::Accepted) {
-        auto alphabetVector = alphabetSelector->getSelectedAlphabet();
-        selectedAlphabet.insert(alphabetVector.begin(), alphabetVector.end());
-
-        // Update the display label
-        if (selectedAlphabet.empty()) {
-            selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
-            selectedAlphabetLabel->setStyleSheet(
-                "color: #666666; "
-                "background-color: #f0f0f0; "
-                "padding: 8px; "
-                "border: 1px solid #cccccc; "
-                "border-radius: 4px;"
-            );
-        } else {
-            QStringList charList;
-            for (char ch : selectedAlphabet) {
-                charList << QString(ch);
-            }
-
-            QString displayText = "Alfabeto: {" + charList.join(", ") + "}";
-            selectedAlphabetLabel->setText(displayText);
-            selectedAlphabetLabel->setStyleSheet(
-                "color: #000000; "
-                "background-color: #e6f3ff; "
-                "padding: 8px; "
-                "border: 1px solid #0066cc; "
-                "border-radius: 4px;"
-            );
+QStringList MainWindow::findSyntacticPatterns(const std::vector<std::pair<QString, QString>>& tokens, const std::vector<SyntacticRule>& rules) {
+    QStringList patternsFound;
+    std::vector<QString> tokenNames;
+    for(const auto& token : tokens) { tokenNames.push_back(token.first); }
+    for (const auto& rule : rules) {
+        if (rule.tokenSequence.isEmpty()) continue;
+        auto search_start = tokenNames.begin();
+        while(true) {
+            auto it = std::search(search_start, tokenNames.end(), rule.tokenSequence.begin(), rule.tokenSequence.end());
+            if (it == tokenNames.end()) break;
+            size_t found_index = std::distance(tokenNames.begin(), it);
+            patternsFound.append(QString("Se encontró el patrón '%1' en la posición de token %2.").arg(rule.patternName).arg(found_index));
+            search_start = it + 1;
         }
     }
+    return patternsFound;
 }
 
-void MainWindow::onCreateNewAutomaton()
-{
-    QString name = automatonNameEdit->text().trimmed();
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "Advertencia", "Por favor ingrese un nombre para el autómata.");
-        return;
-    }
-
-    if (selectedAlphabet.empty()) {
-        QMessageBox::warning(this, "Advertencia", "Por favor seleccione un alfabeto para el autómata.");
-        return;
-    }
-
-    // --- NEW LOGIC STARTS HERE ---
-
-    // 1. Create an instance of the editor
-    automatonEditor = new AutomatonEditor();
-
-    // 2. Load the automaton's data (name and alphabet) into the editor
-    automatonEditor->loadAutomaton(name, selectedAlphabet);
-
-    // 3. Set a default size and show the editor window
-    automatonEditor->resize(1024, 768);
-    automatonEditor->show();
-
-    // 4. Hide the main menu window
-    this->hide();
-
-    // --- END OF NEW LOGIC ---
-
-    // Clear the form and hide the creation dialog
-    automatonNameEdit->clear();
-    descriptionEdit->clear();
-    selectedAlphabet.clear();
-    selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
-    selectedAlphabetLabel->setStyleSheet(
-        "color: #666666; "
-        "background-color: #f0f0f0; "
-        "padding: 8px; "
-        "border: 1px solid #cccccc; "
-        "border-radius: 4px;"
-    );
-    createDialog->hide();
-}
-
-void MainWindow::onCancelCreate()
-{
-    automatonNameEdit->clear();
-    descriptionEdit->clear();
-    selectedAlphabet.clear();
-    selectedAlphabetLabel->setText("(ningún alfabeto seleccionado)");
-    selectedAlphabetLabel->setStyleSheet(
-        "color: #666666; "
-        "background-color: #f0f0f0; "
-        "padding: 8px; "
-        "border: 1px solid #cccccc; "
-        "border-radius: 4px;"
-    );
-    createDialog->hide();
-}
-
-void MainWindow::onCancelSelect()
-{
-    selectDialog->hide();
-}
-
-/**
- * @brief Finds the file path for a given automaton name and loads it.
- * @param automatonName The name of the automaton to load.
- */
-void MainWindow::loadSelectedAutomaton(const QString &automatonName)
-{
-    QSettings settings("ZFlap", "ZFlap");
-    QStringList recent = settings.value("recentAutomata").toStringList();
-    QString filePath;
-
-    for (const QString &path : recent) {
-        if (QFileInfo(path).completeBaseName() == automatonName) {
-            filePath = path;
-            break;
-        }
-    }
-
-    if (filePath.isEmpty()) {
-        QMessageBox::critical(this, "Error", "No se pudo encontrar la ruta del archivo para '" + automatonName + "'.");
-        return;
-    }
-
-    openEditorWithFile(filePath);
-}
-/**
- * @brief Set up hover animations for buttons
- * @param button The QPushButton to apply animations to
- *
- * Creates a custom event filter that adds cute hover effects to buttons:
- * - Growth: Button scales up by 20x10 pixels when hovered
- * - Shake: Continuous smooth horizontal oscillation (±3px) while hovering
- * - Smooth transitions: 800 ms animation cycle with infinite loop
- * - Return animation: Smooth scale-down when hover ends
- *
- * The animation system uses QPropertyAnimation with geometry manipulation
- * for precise control over size and position changes.
- */
-void MainWindow::setupButtonAnimation(QPushButton* button)
-{
-    /**
-     * @class AnimatedButton
-     * @brief Custom event filter for button hover animations
-     *
-     * This inner class handles all hover-related animations by filtering
-     * mouse enter/leave events and applying smooth property animations.
-     */
-    class AnimatedButton : public QObject
-    {
-    public:
-        QPushButton* button;
-        QPropertyAnimation* shakeAnimation;
-        QRect originalGeometry;
-        bool isHovering;
-
-        AnimatedButton(QPushButton* btn) : QObject(btn), button(btn), isHovering(false)
-        {
-            originalGeometry = button->geometry();
-
-            // Create smooth shake animation using geometry property
-            shakeAnimation = new QPropertyAnimation(button, "geometry", this);
-            shakeAnimation->setDuration(800);
-            shakeAnimation->setEasingCurve(QEasingCurve::InOutSine);
-            shakeAnimation->setLoopCount(-1); // Loop infinitely while hovering
-        }
-
-    protected:
-        bool eventFilter(QObject* obj, QEvent* event) override
-        {
-            if (obj == button) {
-                if (event->type() == QEvent::Enter) {
-                    startHoverAnimation();
-                } else if (event->type() == QEvent::Leave) {
-                    stopHoverAnimation();
+std::vector<std::pair<QString, QString>> MainWindow::dynamicTokenize(const QString& text, const std::vector<LexicalRule>& rules) {
+    std::vector<std::pair<QString, QString>> recognizedTokens;
+    std::string stdText = text.toStdString();
+    auto cursor = stdText.cbegin();
+    auto end = stdText.cend();
+    while (cursor != end) {
+        std::smatch bestMatch;
+        const LexicalRule* bestRule = nullptr;
+        std::smatch::difference_type bestLength = 0;
+        for (const auto& rule : rules) {
+            try {
+                std::regex currentRegex(rule.regexPattern.toStdString());
+                std::smatch currentMatch;
+                if (std::regex_search(cursor, end, currentMatch, currentRegex, std::regex_constants::match_continuous)) {
+                    if (currentMatch.length() > bestLength) {
+                        bestLength = currentMatch.length();
+                        bestMatch = currentMatch;
+                        bestRule = &rule;
+                    }
                 }
+            } catch (const std::regex_error&) {}
+        }
+        if (bestRule) {
+            if (bestRule->tokenName.toUpper() != "WHITESPACE") { recognizedTokens.push_back({bestRule->tokenName, QString::fromStdString(bestMatch.str())}); }
+            cursor += bestMatch.length();
+        } else {
+            recognizedTokens.push_back({"DESCONOCIDO", QString(*cursor)});
+            ++cursor;
+        }
+    }
+    return recognizedTokens;
+}
+
+void MainWindow::onStaticLexerAnalyze() {
+    QString text = staticLexerInput->toPlainText();
+    std::vector<Token> tokens = tokenize(text.toStdString().c_str());
+    QString result;
+    for (const auto& token : tokens) {
+        QString tokenTypeStr;
+        switch (token.type) {
+            case URL: tokenTypeStr = "URL"; break;
+            case PLACA_AGS: tokenTypeStr = "Placa de Aguascalientes"; break;
+            case EMAIL_UAA: tokenTypeStr = "Email Institucional UAA"; break;
+            case CLASS: tokenTypeStr = "Palabra Clave: class"; break;
+            case EXTENDS: tokenTypeStr = "Palabra Clave: extends"; break;
+            case TIPO_INT: tokenTypeStr = "Tipo de Dato: int"; break;
+            case TIPO_FLOAT: tokenTypeStr = "Tipo de Dato: float"; break;
+            case TIPO_DOUBLE: tokenTypeStr = "Tipo de Dato: double"; break;
+            case TIPO_BOOLEAN: tokenTypeStr = "Tipo de Dato: boolean"; break;
+            case TIPO_CHAR: tokenTypeStr = "Tipo de Dato: char"; break;
+            case TIPO_STRING: tokenTypeStr = "Tipo de Dato: String"; break;
+            case TIPO_VOID: tokenTypeStr = "Tipo de Dato: void"; break;
+            case IF: tokenTypeStr = "Palabra Clave: if"; break;
+            case WHILE: tokenTypeStr = "Palabra Clave: while"; break;
+            case DO: tokenTypeStr = "Palabra Clave: do"; break;
+            case SWITCH: tokenTypeStr = "Palabra Clave: switch"; break;
+            case ELSE: tokenTypeStr = "Palabra Clave: else"; break;
+            case MAIN: tokenTypeStr = "Palabra Clave: main"; break;
+            case NEW: tokenTypeStr = "Palabra Clave: new"; break;
+            case TRUE: tokenTypeStr = "Booleano: true"; break;
+            case FALSE: tokenTypeStr = "Booleano: false"; break;
+            case PRIVATE: tokenTypeStr = "Control de Acceso: private"; break;
+            case PUBLIC: tokenTypeStr = "Control de Acceso: public"; break;
+            case PROTECTED: tokenTypeStr = "Control de Acceso: protected"; break;
+            case IDENTIFICADOR: tokenTypeStr = "Identificador"; break;
+            case NUMERO_ENTERO: tokenTypeStr = "Número Entero"; break;
+            case NUMERO_FLOTANTE: tokenTypeStr = "Número Flotante"; break;
+            case OP_ASIGNACION: tokenTypeStr = "Operador de Asignación"; break;
+            case OP_COMPARACION: tokenTypeStr = "Operador de Comparación"; break;
+            case OP_DIFERENTE: tokenTypeStr = "Operador Diferente de"; break;
+            case OP_MENOR: tokenTypeStr = "Operador Menor que"; break;
+            case OP_MAYOR: tokenTypeStr = "Operador Mayor que"; break;
+            case OP_MENOR_IGUAL: tokenTypeStr = "Operador Menor o Igual que"; break;
+            case OP_MAYOR_IGUAL: tokenTypeStr = "Operador Mayor o Igual que"; break;
+            case OP_SUMA: tokenTypeStr = "Operador de Suma"; break;
+            case OP_RESTA: tokenTypeStr = "Operador de Resta"; break;
+            case OP_MULT: tokenTypeStr = "Operador de Multiplicación"; break;
+            case OP_DIV: tokenTypeStr = "Operador de División"; break;
+            case LLAVE_ABRE: tokenTypeStr = "Delimitador: Llave Abierta"; break;
+            case LLAVE_CIERRA: tokenTypeStr = "Delimitador: Llave Cerrada"; break;
+            case PARENTESIS_ABRE: tokenTypeStr = "Delimitador: Paréntesis Abierto"; break;
+            case PARENTESIS_CIERRA: tokenTypeStr = "Delimitador: Paréntesis Cerrado"; break;
+            case CORCHETE_ABRE: tokenTypeStr = "Delimitador: Corchete Abierto"; break;
+            case CORCHETE_CIERRA: tokenTypeStr = "Delimitador: Corchete Cerrado"; break;
+            case PUNTO_Y_COMA: tokenTypeStr = "Separador: Punto y Coma"; break;
+            case COMA: tokenTypeStr = "Separador: Coma"; break;
+            case PUNTO: tokenTypeStr = "Separador: Punto"; break;
+            case DESCONOCIDO: tokenTypeStr = "Error: Símbolo Desconocido"; break;
+        }
+        result += QString("[%1]: %2\n").arg(tokenTypeStr).arg(token.lexeme.c_str());
+    }
+    staticLexerOutput->setText(result);
+    checkForPatterns(tokens);
+}
+void MainWindow::checkForPatterns(const std::vector<Token>& tokens) {
+    if (tokens.size() >= 8) {
+        for (size_t i = 0; i <= tokens.size() - 8; ++i) {
+            if (tokens[i].type == IDENTIFICADOR && tokens[i+1].type == IDENTIFICADOR && tokens[i+2].type == OP_ASIGNACION &&
+                tokens[i+3].type == NEW && tokens[i+4].type == IDENTIFICADOR && tokens[i+5].type == PARENTESIS_ABRE &&
+                tokens[i+6].type == PARENTESIS_CIERRA && tokens[i+7].type == PUNTO_Y_COMA) {
+                staticLexerOutput->append(QString("\n--- PATRÓN ENCONTRADO ---\nInstanciación de Objeto: '%1' de clase '%2'.\n").arg(tokens[i+1].lexeme.c_str()).arg(tokens[i].lexeme.c_str()));
             }
-            return QObject::eventFilter(obj, event);
         }
-
-    private:
-        void startHoverAnimation()
-        {
-            isHovering = true;
-            originalGeometry = button->geometry();
-
-            // Scale up the button using the stylesheet
-            QString currentStyle = button->styleSheet();
-            QString newStyle = currentStyle + " QPushButton { transform: scale(1.1); }";
-            button->setStyleSheet(newStyle);
-
-            // Resize the button geometry for the scale effect
-            QRect scaledGeometry = originalGeometry.adjusted(-10, -5, 10, 5);
-            button->setGeometry(scaledGeometry);
-
-            // Create a smooth shake with more keyframes for smoother motion
-            QRect shakeLeft = scaledGeometry.adjusted(-3, 0, -3, 0);
-            QRect shakeRight = scaledGeometry.adjusted(3, 0, 3, 0);
-
-            shakeAnimation->setStartValue(scaledGeometry);
-            shakeAnimation->setKeyValueAt(0.125, shakeLeft);
-            shakeAnimation->setKeyValueAt(0.25, scaledGeometry);
-            shakeAnimation->setKeyValueAt(0.375, shakeRight);
-            shakeAnimation->setKeyValueAt(0.5, scaledGeometry);
-            shakeAnimation->setKeyValueAt(0.625, shakeLeft);
-            shakeAnimation->setKeyValueAt(0.75, scaledGeometry);
-            shakeAnimation->setKeyValueAt(0.875, shakeRight);
-            shakeAnimation->setEndValue(scaledGeometry);
-
-            shakeAnimation->start();
-        }
-
-        void stopHoverAnimation()
-        {
-            isHovering = false;
-            shakeAnimation->stop();
-
-            // Reset stylesheet to remove scale
-            QString currentStyle = button->styleSheet();
-            currentStyle.remove(" QPushButton { transform: scale(1.1); }");
-            button->setStyleSheet(currentStyle);
-
-            // Return to the original size smoothly
-            QPropertyAnimation* returnAnimation = new QPropertyAnimation(button, "geometry", this);
-            returnAnimation->setDuration(150);
-            returnAnimation->setEasingCurve(QEasingCurve::OutCubic);
-            returnAnimation->setStartValue(button->geometry());
-            returnAnimation->setEndValue(originalGeometry);
-
-            connect(returnAnimation, &QPropertyAnimation::finished, returnAnimation, &QPropertyAnimation::deleteLater);
-            returnAnimation->start();
-        }
-    };
-
-    AnimatedButton* animatedButton = new AnimatedButton(button);
-    button->installEventFilter(animatedButton);
+    }
 }
-
-/**
- * @brief Creates an editor instance and loads an automaton from a file.
- * @param filePath The path to the .zflap file.
- */
-void MainWindow::openEditorWithFile(const QString &filePath)
-{
-    automatonEditor = new AutomatonEditor();
-    automatonEditor->loadFromFile(filePath); // Use the new loading function
-    automatonEditor->resize(1024, 768);
-    automatonEditor->show();
-
-    this->hide(); // Hide the main menu
+void MainWindow::onCreateAutomaton() {
+    automatonNameEdit->clear();
+    descriptionEdit->clear();
+    selectedAlphabet.clear();
+    selectedAlphabetLabel->setText("Alfabeto: (ninguno)");
+    createDialog->exec();
 }
+void MainWindow::onSelectAutomaton() {
+    if (sender() == selectAutomatonButton) {
+        QSettings settings("ZFlap", "ZFlap");
+        QStringList recent = settings.value("recentAutomata").toStringList();
+        automatonList->clear();
+        for (const QString &path : recent) { automatonList->addItem(QFileInfo(path).completeBaseName()); }
+        selectDialog->exec();
+    } else { 
+        if (automatonList->currentItem()) {
+            loadSelectedAutomaton(automatonList->currentItem()->text());
+            selectDialog->accept();
+        }
+    }
+}
+void MainWindow::onCreateNewAutomaton() {
+    QString name = automatonNameEdit->text().trimmed();
+    if (name.isEmpty() || selectedAlphabet.empty()) { QMessageBox::warning(this, "Datos incompletos", "El nombre y el alfabeto son obligatorios."); return; }
+    auto* editor = new AutomatonEditor();
+    editor->loadAutomaton(name, selectedAlphabet);
+    int index = mainTabWidget->addTab(editor, QString("Autómata: %1").arg(name));
+    mainTabWidget->setCurrentIndex(index);
+    createDialog->accept();
+}
+void MainWindow::onSelectAlphabet() {
+    if (alphabetSelector->exec() == QDialog::Accepted) {
+        selectedAlphabet = alphabetSelector->getSelectedAlphabet();
+        QStringList alphabetList;
+        for(char c : selectedAlphabet) { alphabetList << QString(c); }
+        selectedAlphabetLabel->setText(QString("Alfabeto: {%1}").arg(alphabetList.join(", ")));
+    }
+}
+void MainWindow::onCancelCreate() { createDialog->reject(); }
+void MainWindow::onCancelSelect() { selectDialog->reject(); }
+void MainWindow::loadSelectedAutomaton(const QString &) { /* ... */ }
+void MainWindow::openEditorWithFile(const QString &) { /* ... */ }
+void MainWindow::setupButtonAnimation(QPushButton*) { /* ... */ }

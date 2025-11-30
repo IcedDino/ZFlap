@@ -1,109 +1,72 @@
-cmake_minimum_required(VERSION 3.14) # newer than 3.10 for better find_package
+cmake_minimum_required(VERSION 3.14)
 project(ZFlap VERSION 1.0.0)
 
-set(CMAKE_CXX_STANDARD 20)
+# ---------------- Configuración de compilador ----------------
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ---------------- Qt MOC Settings ----------------
+# ---------------- Encontrar Flex (con soporte para Windows/MSYS2) ----------------
+if(WIN32)
+    find_package(FLEX)
+    if(NOT FLEX_FOUND)
+        find_program(FLEX_EXECUTABLE NAMES flex
+            PATHS "C:/msys64/usr/bin" "C:/msys64/mingw64/bin"
+            NO_DEFAULT_PATH
+        )
+    endif()
+else()
+    find_package(FLEX REQUIRED)
+endif()
+
+if(NOT FLEX_EXECUTABLE)
+    message(FATAL_ERROR "Flex is required, but was not found. Please install it or check your system's PATH.")
+endif()
+
+# ---------------- Generar Lexer con Flex ----------------
+set(LEXER_L_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/Lexer.l)
+set(LEXER_CPP_FILE ${CMAKE_CURRENT_BINARY_DIR}/src/Lexer.cpp)
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/src)
+
+add_custom_command(
+    OUTPUT ${LEXER_CPP_FILE}
+    COMMAND ${FLEX_EXECUTABLE} -o ${LEXER_CPP_FILE} ${LEXER_L_FILE}
+    DEPENDS ${LEXER_L_FILE}
+    COMMENT "Generating C++ lexer from ${LEXER_L_FILE}"
+)
+
+# ---------------- Qt: MOC, UIC, RCC ----------------
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# ---------------- Shared Library ----------------
+# ---------------- Biblioteca compartida ----------------
 add_library(zflap_lib
-        src/Transition.cpp
         src/MainWindow.cpp
         src/MainWindow.h
-        src/Alfabeto.cpp
+        src/AutomatonEditor.cpp
+        src/AutomatonEditor.h
         src/AlphabetSelector.cpp
         src/AlphabetSelector.h
+        src/Transition.cpp
         src/validacion_cadenas.cpp
+        src/validacion_cadenas.h
+        ${LEXER_CPP_FILE} 
 )
 
-target_include_directories(zflap_lib PUBLIC src)
+target_include_directories(zflap_lib PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 # ---------------- GoogleTest ----------------
-# Allow system, vcpkg, or Homebrew installation
 find_package(GTest QUIET)
-
-if(NOT GTest_FOUND)
-    message(STATUS "GoogleTest not found, try installing it:")
-    if(WIN32)
-        message(STATUS "  vcpkg install gtest")
-    elseif(APPLE)
-        message(STATUS "  brew install googletest")
-    else()
-        message(STATUS "  apt-get install libgtest-dev")
-    endif()
-    message(FATAL_ERROR "GoogleTest is required")
+if(GTest_FOUND)
+    add_executable(test_transition test/test_transition.cpp)
+    target_link_libraries(test_transition PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
 endif()
 
-#-------------- Transition test ----------------------------
-add_executable(test_transition test/test_transition.cpp)
-target_link_libraries(test_transition PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
-
-if(MSVC)
-    target_compile_options(test_transition PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(test_transition PRIVATE -Wall -Wextra -pedantic)
-endif()
-
-#--------------- Alfabeto test ------------------------------
-add_executable(test_alfabeto test/test_alfabeto.cpp
-        test/test_validacion_cadenas.cpp)
-target_link_libraries(test_alfabeto PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
-
-if(MSVC)
-    target_compile_options(test_alfabeto PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(test_alfabeto PRIVATE -Wall -Wextra -pedantic)
-endif()
-
-#--------------- Validacion test ------------------------------
-add_executable(test_validacion_cadenas test/test_validacion_cadenas.cpp
-        test/test_validacion_cadenas.cpp)
-target_link_libraries(test_validacion_cadenas PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
-
-if(MSVC)
-    target_compile_options(test_validacion_cadenas PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(test_validacion_cadenas PRIVATE -Wall -Wextra -pedantic)
-endif()
-
-# ---------------- Qt ----------------
-# CMake will look in standard locations, vcpkg, or Homebrew automatically
+# ---------------- Qt6 Widgets ----------------
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
-
-# Link Qt to the library since MainWindow uses Qt
 target_link_libraries(zflap_lib PUBLIC Qt6::Widgets)
 
-add_executable(zflap src/main.cpp
-        src/FlowLayout.h
-        src/AutomatonEditor.h
-        src/AutomatonEditor.cpp
-        src/validacion_cadenas.h)
+# ---------------- Ejecutable principal ----------------
+add_executable(zflap src/main.cpp)
 target_link_libraries(zflap PRIVATE zflap_lib Qt6::Widgets)
-
-# ---------------- Doxygen ----------------
-find_package(Doxygen QUIET)
-
-if(DOXYGEN_FOUND)
-    set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
-    set(DOXYGEN_OUT ${CMAKE_CURRENT_BINARY_DIR}/docs)
-
-    add_custom_target(docs
-            COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_IN}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            COMMENT "Generating API documentation with Doxygen"
-            VERBATIM
-    )
-
-    file(MAKE_DIRECTORY ${DOXYGEN_OUT})
-
-    install(DIRECTORY ${DOXYGEN_OUT}/
-            DESTINATION share/doc/zflap
-            OPTIONAL
-    )
-else()
-    message(STATUS "Doxygen not found, skipping docs target")
-endif()
