@@ -6,6 +6,7 @@
 #include <set>
 
 #include "Lexer.h" 
+#include "AdP.h" // Include AdP.h
 
 // --- Forward Declarations ---
 class QWidget;
@@ -22,6 +23,7 @@ class QTableWidget;
 class QSplitter;
 class AutomatonEditor;
 class AlphabetSelector;
+class QComboBox; // Added for automaton type selection
 
 // --- Estructuras de Datos para Analizadores ---
 struct LexicalRule {
@@ -39,6 +41,13 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
+    // Enum for automaton types
+    enum AutomatonType {
+        FiniteAutomaton,
+        StackAutomaton,
+        TuringMachine
+    };
+
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
@@ -113,6 +122,8 @@ private:
     QTextEdit *descriptionEdit;
     QPushButton *selectAlphabetButton;
     QLabel *selectedAlphabetLabel;
+    QComboBox *automatonTypeComboBox; // Added for automaton type selection
+    QComboBox *initialStackSymbolComboBox; // Added for initial stack symbol
     
     QDialog *selectDialog;
     QListWidget *automatonList;
@@ -120,6 +131,7 @@ private:
     // --- Clases de Ayuda y Datos ---
     AlphabetSelector *alphabetSelector;
     std::set<char> selectedAlphabet;
+    char initialStackSymbol; // Member to store the initial stack symbol
     
     // --- Estilos ---
     QFont titleFont;

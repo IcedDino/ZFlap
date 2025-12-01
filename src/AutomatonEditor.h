@@ -21,19 +21,24 @@
 #include <map>
 #include <vector>
 #include "validacion_cadenas.h"
+#include "MainWindow.h" // Include MainWindow.h for AutomatonType enum
+#include "AdP.h"
+#include "TM.h"
 
+// --- Full definitions needed for member variables ---
+#include <QGroupBox>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+// --- End of full definitions ---
 
-// Forward declarations
+// Forward declarations (only for pointers/references, or if not used as member variables)
 class StateItem;
 class TransitionItem;
 class QTimer;
 class QGraphicsScene;
 class QPushButton;
-class QVBoxLayout;
-class QHBoxLayout;
 class QLabel;
 class QLineEdit;
-class QGroupBox;
 class QTextEdit;
 class QButtonGroup;
 class QSpinBox;
@@ -66,6 +71,26 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 };
 
+/**
+ * @class MinimapView
+ * @brief A dedicated QGraphicsView for the minimap.
+ *
+ * This view overrides the paint event to draw a rectangle indicating the
+ * main editor's visible area.
+ */
+class MinimapView : public QGraphicsView
+{
+    Q_OBJECT
+
+public:
+    explicit MinimapView(QGraphicsScene *scene, QWidget *parent = nullptr);
+    void setViewRect(const QRectF &rect);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+private:
+    QRectF m_viewRect;
+};
 
 /**
  * @class AutomatonEditor
@@ -82,7 +107,8 @@ class AutomatonEditor : public QWidget
 public:
     explicit AutomatonEditor(QWidget *parent = nullptr);
     ~AutomatonEditor() override;
-    void loadAutomaton(const QString& name, const std::set<char>& alphabet);
+    void loadAutomaton(const QString& name, const std::set<char>& alphabet); // Existing overload
+    void loadAutomaton(const QString& name, const std::set<char>& alphabet, MainWindow::AutomatonType type, char initialStackSymbol = '\0'); // New overload
     void loadFromFile(const QString& filePath);
 
 private slots:
@@ -112,6 +138,11 @@ private slots:
     void onBackgroundClicked();
     void onResetZoomClicked();
     void updateResetZoomButtonVisibility();
+    void updateMinimap();
+
+    // ADDED: Slot to update automaton type display
+    void updateAutomatonTypeDisplay();
+
 
 private:
     void setupUI();
@@ -148,6 +179,9 @@ private:
     QPushButton *generatePanelButton;
     QPushButton *resetZoomButton;
 
+    // ADDED: Minimap widgets
+    MinimapView *minimapView;
+
     // --- Validation Sidebar ---
     QGroupBox *validationBox;
     QLineEdit *chainInput;
@@ -157,13 +191,26 @@ private:
     QPushButton *clearButton;
     QPushButton *instantValidateButton;
     QLabel *validationStatusLabel;
+    QTextEdit *validationDetailsText;
 
     // --- Transition Sidebar ---
     QGroupBox *transitionBox;
-    QLineEdit *transitionSymbolEdit;
+    QLineEdit *transitionInputSymbolEdit; // Changed for PDA
+    QLineEdit *transitionPopSymbolEdit;   // Added for PDA
+    QLineEdit *transitionPushStringEdit;  // Added for PDA
     QLabel *fromStateLabel;
     QLabel *toStateLabel;
+    QLabel *inputSymbolLabel; // Label for input symbol
+    QLabel *popSymbolLabel;   // Label for pop symbol
+    QLabel *pushStringLabel;  // Label for push string
     QPushButton *updateTransitionButton;
+
+    QLabel *tmReadLabel;
+    QLabel *tmWriteLabel;
+    QLabel *tmMoveLabel;
+    QLineEdit *tmReadEdit;
+    QLineEdit *tmWriteEdit;
+    QComboBox *tmMoveCombo;
 
     // ADDED: New sidebar for generating strings
     QGroupBox *generationBox;
@@ -172,13 +219,18 @@ private:
     QTextEdit *resultsTextEdit;
 
     // --- Static Labels ---
-    QLabel *inputSymbolLabel;
     QLabel *inputChainLabel;
     QLabel *maxLengthLabel;
     QLabel *resultsLabel;
+    QLabel *automatonTypeLabel; // ADDED: Label for automaton type
 
     // --- Automaton Data & State ---
-    Transition transitionHandler;
+    Transition transitionHandler; // For Finite Automata
+    PDA* pda; // For Stack Automata
+    TM* tm;   // For Turing Machines
+    MainWindow::AutomatonType currentAutomatonType;
+    char pdaInitialStackSymbol;
+    char tmBlankSymbol;
     std::set<char> currentAlphabet;
     QString automatonName;
     int stateCounter;
@@ -192,6 +244,10 @@ private:
     std::vector<StateItem*> currentValidationStates;
     int validationStep;
     QString validationChain;
+    std::vector<PDA_Step> pdaPath;
+    int pdaStepIndex;
+    std::vector<TM_Step> tmPath;
+    int tmStepIndex;
 };
 
 /**
@@ -240,8 +296,23 @@ public:
     TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* parent = nullptr);
     StateItem* getStartItem() const;
     StateItem* getEndItem() const;
-    void setSymbol(const QString& symbol);
-    QString getSymbol() const;
+
+    // For Finite Automata
+    void setSymbol(char symbol);
+    char getSymbol() const;
+
+    // For Stack Automata (PDA)
+    void setPDASymbols(char input, char pop, const QString& push);
+    char getPDAInputSymbol() const;
+    char getPDAPopSymbol() const;
+    QString getPDAPushString() const;
+
+    // For Turing Machines
+    void setTMSymbols(char read, char write, TM_MoveDirection move);
+    char getTMReadSymbol() const;
+    char getTMWriteSymbol() const;
+    TM_MoveDirection getTMMoveDirection() const;
+
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     // ADDED: Overrides to increase the clickable area of the transition line.
     QRectF boundingRect() const override;
@@ -262,9 +333,17 @@ private:
     StateItem *endItem;
     QGraphicsTextItem* label;
     bool isLoop;
-     QPointF loopCenterOffset;
+    QPointF loopCenterOffset;
     qreal loopRotation;
-    QString transitionSymbol;
+
+    // Transition symbols for different automaton types
+    char faSymbol; // For Finite Automaton
+    char pdaInputSymbol; // For PDA
+    char pdaPopSymbol;   // For PDA
+    QString pdaPushString; // For PDA
+    char tmReadSymbol;
+    char tmWriteSymbol;
+    TM_MoveDirection tmMoveDirection;
 };
 
 

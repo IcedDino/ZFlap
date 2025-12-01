@@ -24,6 +24,7 @@
 #include <QTableWidget>
 #include <QFont>
 #include <QPalette>
+#include <QComboBox> // Include QComboBox
 
 // --- Estilos y Colores Mejorados ---
 const QColor WARM_WHITE(255, 254, 245);
@@ -44,7 +45,7 @@ const QString BUTTON_STYLE_SECONDARY = QString(
     "QPushButton:hover { border-color: %2; }"
 ).arg(BUTTON_GRAY.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name());
 
-const QString TEXT_EDIT_STYLE = "QTextEdit, QLineEdit, QListWidget { background-color: #FFFFFF; color: %1; border: 1px solid %2; border-radius: 4px; padding: 5px; }";
+const QString TEXT_EDIT_STYLE = "QTextEdit, QLineEdit, QListWidget, QComboBox { background-color: #FFFFFF; color: %1; border: 1px solid %2; border-radius: 4px; padding: 5px; }";
 const QString TABLE_STYLE = "QTableWidget { background-color: #FFFFFF; border: 1px solid %1; gridline-color: %2; } QHeaderView::section { background-color: %3; color: %4; padding: 4px; border: 1px solid %1; font-weight: bold; } QTableWidget::item { color: %4; }";
 const QString TAB_WIDGET_STYLE = QString(
     "QTabWidget::pane { border: none; background: %1; }"
@@ -234,30 +235,66 @@ void MainWindow::createAutomatonDialogs() {
     createDialog->setPalette(this->palette());
     createDialog->setWindowTitle("Crear Nuevo Autómata");
     auto* createLayout = new QVBoxLayout(createDialog);
+
     automatonNameEdit = new QLineEdit();
     automatonNameEdit->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
     descriptionEdit = new QTextEdit();
     descriptionEdit->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+
+    // Automaton Type Selector
+    automatonTypeComboBox = new QComboBox();
+    automatonTypeComboBox->setStyleSheet(QString(
+        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 5px; }"
+    ).arg(WARM_WHITE.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    automatonTypeComboBox->addItem("Autómata Finito", FiniteAutomaton);
+    automatonTypeComboBox->addItem("Autómata de Pila", StackAutomaton);
+    automatonTypeComboBox->addItem("Máquina de Turing", TuringMachine);
+
+    // Initial Stack Symbol (for Stack Automaton)
+    initialStackSymbolComboBox = new QComboBox();
+    initialStackSymbolComboBox->setStyleSheet(QString(
+        "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 5px; }"
+    ).arg(WARM_WHITE.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name()));
+    initialStackSymbolComboBox->addItem("Z0"); // Default initial symbol
+
     selectAlphabetButton = new QPushButton("Seleccionar Alfabeto");
     selectAlphabetButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     selectedAlphabetLabel = new QLabel("Alfabeto: (ninguno)");
+
     auto* createConfirmButton = new QPushButton("Crear");
     createConfirmButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     auto* createCancelButton = new QPushButton("Cancelar");
     createCancelButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
+
     createLayout->addWidget(new QLabel("Nombre:"));
     createLayout->addWidget(automatonNameEdit);
     createLayout->addWidget(new QLabel("Descripción:"));
     createLayout->addWidget(descriptionEdit);
+    createLayout->addWidget(new QLabel("Tipo de Autómata:"));
+    createLayout->addWidget(automatonTypeComboBox);
+    createLayout->addWidget(new QLabel("Símbolo Inicial de Pila (solo para Autómata de Pila):"));
+    createLayout->addWidget(initialStackSymbolComboBox);
     createLayout->addWidget(selectAlphabetButton);
     createLayout->addWidget(selectedAlphabetLabel);
+
     auto* createButtonLayout = new QHBoxLayout();
     createButtonLayout->addWidget(createConfirmButton);
     createButtonLayout->addWidget(createCancelButton);
     createLayout->addLayout(createButtonLayout);
+
     connect(selectAlphabetButton, &QPushButton::clicked, this, &MainWindow::onSelectAlphabet);
     connect(createConfirmButton, &QPushButton::clicked, this, &MainWindow::onCreateNewAutomaton);
     connect(createCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelCreate);
+    connect(automatonTypeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index){
+        AutomatonType type = static_cast<AutomatonType>(automatonTypeComboBox->itemData(index).toInt());
+        initialStackSymbolComboBox->setVisible(type == StackAutomaton);
+        initialStackSymbolComboBox->setEnabled(type == StackAutomaton);
+    });
+
+    // Initialize visibility based on default selection
+    initialStackSymbolComboBox->setVisible(false);
+    initialStackSymbolComboBox->setEnabled(false);
+
     selectDialog = new QDialog(this);
     selectDialog->setPalette(this->palette());
     selectDialog->setWindowTitle("Seleccionar Autómata");
@@ -425,6 +462,11 @@ void MainWindow::onCreateAutomaton() {
     descriptionEdit->clear();
     selectedAlphabet.clear();
     selectedAlphabetLabel->setText("Alfabeto: (ninguno)");
+    automatonTypeComboBox->setCurrentIndex(0); // Reset to Finite Automaton
+    initialStackSymbolComboBox->clear();
+    initialStackSymbolComboBox->addItem("Z0"); // Default initial symbol
+    initialStackSymbolComboBox->setVisible(false);
+    initialStackSymbolComboBox->setEnabled(false);
     createDialog->exec();
 }
 void MainWindow::onSelectAutomaton() {
@@ -434,7 +476,7 @@ void MainWindow::onSelectAutomaton() {
         automatonList->clear();
         for (const QString &path : recent) { automatonList->addItem(QFileInfo(path).completeBaseName()); }
         selectDialog->exec();
-    } else { 
+    } else {
         if (automatonList->currentItem()) {
             loadSelectedAutomaton(automatonList->currentItem()->text());
             selectDialog->accept();
@@ -444,8 +486,19 @@ void MainWindow::onSelectAutomaton() {
 void MainWindow::onCreateNewAutomaton() {
     QString name = automatonNameEdit->text().trimmed();
     if (name.isEmpty() || selectedAlphabet.empty()) { QMessageBox::warning(this, "Datos incompletos", "El nombre y el alfabeto son obligatorios."); return; }
+
+    AutomatonType type = static_cast<AutomatonType>(automatonTypeComboBox->currentData().toInt());
+    char initialStackSymbol = '\0';
+    if (type == StackAutomaton) {
+        if (initialStackSymbolComboBox->currentText().isEmpty()) {
+            QMessageBox::warning(this, "Datos incompletos", "El símbolo inicial de pila es obligatorio para Autómatas de Pila.");
+            return;
+        }
+        initialStackSymbol = initialStackSymbolComboBox->currentText().at(0).toLatin1();
+    }
+
     auto* editor = new AutomatonEditor();
-    editor->loadAutomaton(name, selectedAlphabet);
+    editor->loadAutomaton(name, selectedAlphabet, type, initialStackSymbol);
     int index = mainTabWidget->addTab(editor, QString("Autómata: %1").arg(name));
     mainTabWidget->setCurrentIndex(index);
     createDialog->accept();
@@ -456,6 +509,13 @@ void MainWindow::onSelectAlphabet() {
         QStringList alphabetList;
         for(char c : selectedAlphabet) { alphabetList << QString(c); }
         selectedAlphabetLabel->setText(QString("Alfabeto: {%1}").arg(alphabetList.join(", ")));
+
+        // Update initial stack symbol combobox with selected alphabet characters
+        initialStackSymbolComboBox->clear();
+        initialStackSymbolComboBox->addItem("Z0"); // Always include default Z0
+        for(char c : selectedAlphabet) {
+            initialStackSymbolComboBox->addItem(QString(c));
+        }
     }
 }
 void MainWindow::onCancelCreate() { createDialog->reject(); }

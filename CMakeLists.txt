@@ -49,8 +49,12 @@ add_library(zflap_lib
         src/AlphabetSelector.cpp
         src/AlphabetSelector.h
         src/Transition.cpp
+        src/TM.cpp
+        src/TM.h
         src/validacion_cadenas.cpp
         src/validacion_cadenas.h
+        src/AdP.cpp
+        src/AdP.h
         ${LEXER_CPP_FILE} 
 )
 
@@ -61,6 +65,10 @@ find_package(GTest QUIET)
 if(GTest_FOUND)
     add_executable(test_transition test/test_transition.cpp)
     target_link_libraries(test_transition PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
+    add_executable(test_tm test/test_tm.cpp)
+    target_link_libraries(test_tm PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
+    add_executable(test_pda test/test_pda.cpp)
+    target_link_libraries(test_pda PRIVATE zflap_lib GTest::gtest GTest::gtest_main)
 endif()
 
 # ---------------- Qt6 Widgets ----------------

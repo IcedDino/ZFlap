@@ -19,10 +19,13 @@ private:
              int maxLongitud, std::set<std::string> &aceptadas);
 
 public:
+    Automaton() = default;
     Automaton(const std::string &inicial, const std::set<std::string> &finales, const Transition &trans);
 
     std::set<std::string> generarCadenasAceptadas(int maxLongitud);
     bool validarCadena(const std::string &cadena, int maxLongitud);
+
+    Transition& getDelta() { return delta; }
 
     // Nueva función
     void guardarAutomata(const std::string &ruta,

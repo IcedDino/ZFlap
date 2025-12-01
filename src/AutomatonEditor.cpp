@@ -7,6 +7,7 @@
  */
 
 #include "AutomatonEditor.h"
+#include <QGroupBox> // Moved to top
 #include <QGraphicsTextItem>
 #include <QMessageBox>
 #include <cmath>
@@ -18,11 +19,11 @@
 #include <Transition.h>
 #include <QSettings>
 #include <QVBoxLayout>
-#include <QGroupBox>
 #include <QPushButton>
 #include <QLabel>
 #include <QButtonGroup>
 #include <QLineEdit>
+#include <QComboBox>
 #include <QGraphicsView>
 #include <QMouseEvent>
 #include <QScrollBar>
@@ -159,6 +160,42 @@ void EditorView::mouseReleaseEvent(QMouseEvent *event)
 }
 
 //================================================================================
+// MinimapView Implementation
+//================================================================================
+MinimapView::MinimapView(QGraphicsScene *scene, QWidget *parent)
+    : QGraphicsView(scene, parent)
+{
+    setRenderHint(QPainter::Antialiasing);
+    setInteractive(false);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+}
+
+void MinimapView::setViewRect(const QRectF &rect)
+{
+    m_viewRect = rect;
+    viewport()->update(); // Trigger a repaint to show the new rectangle
+}
+
+/**
+ * @brief Overrides the paint event to draw the viewport rectangle on top of the scene.
+ *
+ * This method first calls the base implementation to draw the scene content (the minimap),
+ * and then draws a semi-transparent red rectangle on top to indicate the main view's position.
+ */
+void MinimapView::paintEvent(QPaintEvent *event)
+{
+    // First, draw the background and the scene items (the minimap itself)
+    QGraphicsView::paintEvent(event);
+
+    // Then, draw the viewport rectangle on top of everything.
+    QPainter painter(viewport());
+    painter.setPen(QPen(QColor(255, 0, 0, 150), 2)); // Red, semi-transparent, 2px thick
+    painter.setBrush(QColor(255, 0, 0, 30)); // Light red fill
+    painter.drawRect(m_viewRect);
+}
+
+//================================================================================
 // StateItem Implementation
 //================================================================================
 StateItem::StateItem(const QString& name, QGraphicsItem *parent)
@@ -254,11 +291,12 @@ void StateItem::removeTransition(TransitionItem *transition) {
 // TransitionItem Implementation
 //================================================================================
 TransitionItem::TransitionItem(StateItem* start, StateItem* end, QGraphicsItem* parent)
-    : QGraphicsLineItem(parent), startItem(start), endItem(end), isLoop(start == end), loopRotation(0.0), transitionSymbol("ε")
+    : QGraphicsLineItem(parent), startItem(start), endItem(end), isLoop(start == end), loopRotation(0.0),
+      faSymbol('\0'), pdaInputSymbol('\0'), pdaPopSymbol('\0'), pdaPushString(""), tmReadSymbol('\0'), tmWriteSymbol('\0'), tmMoveDirection(TM_MoveDirection::STAY)
 {
     setFlag(QGraphicsItem::ItemIsSelectable);
     setPen(QPen(Qt::black, 2));
-    label = new QGraphicsTextItem(transitionSymbol, this);
+    label = new QGraphicsTextItem("", this); // Initialize with empty text
     label->setDefaultTextColor(Qt::black);
 
     // Set an initial position
@@ -279,12 +317,53 @@ TransitionItem::~TransitionItem()
 StateItem* TransitionItem::getStartItem() const { return startItem; }
 StateItem* TransitionItem::getEndItem() const { return endItem; }
 
-void TransitionItem::setSymbol(const QString& symbol) {
-    transitionSymbol = symbol;
-    label->setPlainText(symbol);
+// For Finite Automata
+void TransitionItem::setSymbol(char symbol) {
+    faSymbol = symbol;
+    label->setPlainText(symbol == '\0' ? QString("ε") : QString(QChar(symbol)));
 }
+char TransitionItem::getSymbol() const { return faSymbol; }
 
-QString TransitionItem::getSymbol() const { return transitionSymbol; }
+// For Stack Automata (PDA)
+void TransitionItem::setPDASymbols(char input, char pop, const QString& push) {
+    pdaInputSymbol = input;
+    pdaPopSymbol = pop;
+    pdaPushString = push;
+
+    QString labelText;
+    labelText += (input == '\0' ? QString("ε") : QString(QChar(input)));
+    labelText += ",";
+    labelText += (pop == '\0' ? QString("ε") : QString(QChar(pop)));
+    labelText += "→";
+    labelText += (push.isEmpty() ? QString("ε") : push);
+    label->setPlainText(labelText);
+}
+char TransitionItem::getPDAInputSymbol() const { return pdaInputSymbol; }
+char TransitionItem::getPDAPopSymbol() const { return pdaPopSymbol; }
+QString TransitionItem::getPDAPushString() const { return pdaPushString; }
+
+// For Turing Machines
+void TransitionItem::setTMSymbols(char read, char write, TM_MoveDirection move) {
+    tmReadSymbol = read;
+    tmWriteSymbol = write;
+    tmMoveDirection = move;
+    QString labelText;
+    labelText += (read == '\0' ? QString("□") : QString(QChar(read)));
+    labelText += "/";
+    labelText += (write == '\0' ? QString("□") : QString(QChar(write)));
+    labelText += ",";
+    QString dir;
+    switch (move) {
+        case TM_MoveDirection::LEFT: dir = "L"; break;
+        case TM_MoveDirection::RIGHT: dir = "R"; break;
+        case TM_MoveDirection::STAY: dir = "S"; break;
+    }
+    label->setPlainText(labelText + dir);
+}
+char TransitionItem::getTMReadSymbol() const { return tmReadSymbol; }
+char TransitionItem::getTMWriteSymbol() const { return tmWriteSymbol; }
+TM_MoveDirection TransitionItem::getTMMoveDirection() const { return tmMoveDirection; }
+
 
 // ADDED: Override to define a larger bounding box for the item.
 // This ensures the entire shape, including the wider hitbox and arrowhead, is redrawn correctly.
@@ -453,7 +532,7 @@ void TransitionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
 
         // --- MODIFIED: Connect to the "shoulders" of the circle, not the equator ---
         // Calculate points at 45 degrees from the top vertical axis for a "north-left" and "north-right" connection.
-        const qreal angleFromVertical = M_PI / 4.0; // 45 degrees
+        const qreal angleFromVertical = M_PI / 4.0;
         const qreal y_offset = -stateRadius * cos(angleFromVertical);
         const qreal x_offset = stateRadius * sin(angleFromVertical);
         QPointF startPoint(-x_offset, y_offset);
@@ -497,12 +576,11 @@ void TransitionItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
         QPointF arrowTip = endPoint;
         // Calculate the two base points of the arrowhead by rotating the angle.
         QPointF arrowP1 = arrowTip - QPointF(cos(angle - M_PI / 6.0) * 12, sin(angle - M_PI / 6.0) * 12);
-        QPointF arrowP2 = arrowTip - QPointF(cos(angle + M_PI / 6.0) * 12, sin(angle + M_PI / 6.0) * 12);
+        QPointF arrowP2 = arrowTip - QPointF(cos(angle + M_PI / 6.0) * 12, sin(angle + M_PI + M_PI / 6.0) * 12);
         // Draw the filled arrowhead polygon.
         painter->setBrush(Qt::black);
         painter->drawPolygon(QPolygonF() << arrowTip << arrowP1 << arrowP2);
 
-        // Restore the painter's state
         painter->restore();
         // --- END: Rotated Arc Drawing ---
         return;
@@ -534,10 +612,16 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
       generatePanelButton(nullptr), validationBox(nullptr), chainInput(nullptr), playButton(nullptr), pauseButton(nullptr),
       nextStepButton(nullptr), clearButton(nullptr), instantValidateButton(nullptr), validationStatusLabel(nullptr),
       resetZoomButton(nullptr),
-      transitionBox(nullptr), transitionSymbolEdit(nullptr), fromStateLabel(nullptr), toStateLabel(nullptr),
+      transitionBox(nullptr), transitionInputSymbolEdit(nullptr), transitionPopSymbolEdit(nullptr), transitionPushStringEdit(nullptr),
+      fromStateLabel(nullptr), toStateLabel(nullptr),
       updateTransitionButton(nullptr), generationBox(nullptr), maxLengthSpinBox(nullptr), generateButton(nullptr),
-      resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr), validationStep(0)
+      resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr),
+      minimapView(nullptr), validationStep(0),
+      pda(nullptr), tm(nullptr), currentAutomatonType(MainWindow::FiniteAutomaton), pdaInitialStackSymbol('\0'), tmBlankSymbol('_'),
+      validationDetailsText(nullptr), pdaStepIndex(0), tmStepIndex(0)
 {
+    // ADDED: Initialize new label
+    automatonTypeLabel = nullptr;
     setupUI();
     setFocusPolicy(Qt::StrongFocus); // Allow the widget to receive key press events
     applyStyles();
@@ -550,22 +634,43 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
 AutomatonEditor::~AutomatonEditor()
 {
     clearAutomaton();
+    delete pda; // Ensure PDA object is deleted
 }
 
 void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet) {
+    loadAutomaton(name, alphabet, MainWindow::FiniteAutomaton, '\0'); // Call the new overload with default type
+}
+
+void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet, MainWindow::AutomatonType type, char initialStackSymbol) {
     clearAutomaton();
     automatonName = name;
     currentAlphabet = alphabet;
+    currentAutomatonType = type;
+    pdaInitialStackSymbol = initialStackSymbol;
+
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        // Initialize PDA with a dummy initial state for now, will be updated in rebuildTransitionHandler
+        pda = new PDA("dummy", pdaInitialStackSymbol);
+    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+        tm = new TM("dummy", tmBlankSymbol);
+    }
+
     setWindowTitle("Editor - " + name);
+    updateAutomatonTypeDisplay(); // Update the display based on the new type
 }
+
 
 void AutomatonEditor::clearAutomaton()
 {
     if (scene) {
-        scene->clear();
+        scene->clear(); // Now safely deletes only automaton items (states, transitions).
     }
     stateItems.clear();
     transitionHandler.clear();
+    delete pda; // Delete PDA object
+    pda = nullptr;
+    delete tm;
+    tm = nullptr;
     stateCounter = 0;
     initialState = nullptr;
     currentTool = SELECT;
@@ -575,11 +680,29 @@ void AutomatonEditor::clearAutomaton()
     validationChain.clear();
     currentValidationStates.clear();
     resetEditorState();
+    updateAutomatonTypeDisplay(); // Update type on clear
+    updateMinimap(); // Update minimap on clear
 }
 
 void AutomatonEditor::rebuildTransitionHandler()
 {
-    transitionHandler.clear(); // Clear all stale data
+    transitionHandler.clear(); // Clear all stale data for FA
+    if (pda) {
+        delete pda; // Delete existing PDA
+        pda = nullptr;
+    }
+    if (tm) {
+        delete tm;
+        tm = nullptr;
+    }
+
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        std::string pdaStartState = initialState ? initialState->getName().toStdString() : "q0";
+        pda = new PDA(pdaStartState, pdaInitialStackSymbol);
+    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+        std::string tmStartState = initialState ? initialState->getName().toStdString() : "q0";
+        tm = new TM(tmStartState, tmBlankSymbol);
+    }
 
     for (QGraphicsItem *item : scene->items()) {
         // Check if the item is a TransitionItem
@@ -587,18 +710,53 @@ void AutomatonEditor::rebuildTransitionHandler()
             std::string from = transItem->getStartItem()->getName().toStdString();
             std::string to = transItem->getEndItem()->getName().toStdString();
 
-            // Get the symbols from the label, e.g., "a,b"
-            QString symbols = transItem->getSymbol();
-            QStringList symbolList = symbols.split(',');
-
-            for (const QString &symbolStr : symbolList) {
-                if (!symbolStr.isEmpty() && symbolStr != "ε") {
-                    char symbol = symbolStr.at(0).toLatin1();
+            if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+                // Get the symbols from the label, e.g., "a,b"
+                char symbol = transItem->getSymbol();
+                if (symbol != '\0') { // '\0' represents epsilon for FA
                     transitionHandler.addTransition(from, symbol, to);
+                }
+            } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+                if (pda) {
+                    PDA_Transition pdaTrans;
+                    pdaTrans.from = from;
+                    pdaTrans.to = to;
+                    pdaTrans.input = transItem->getPDAInputSymbol();
+                    pdaTrans.pop = transItem->getPDAPopSymbol();
+                    pdaTrans.push = transItem->getPDAPushString().toStdString();
+                    pda->addTransition(pdaTrans);
+                }
+            } else if (currentAutomatonType == MainWindow::TuringMachine) {
+                if (tm) {
+                    TM_Transition tmt;
+                    tmt.fromState = from;
+                    tmt.toState = to;
+                    tmt.readSymbol = transItem->getTMReadSymbol();
+                    tmt.writeSymbol = transItem->getTMWriteSymbol();
+                    tmt.moveDirection = transItem->getTMMoveDirection();
+                    tm->addTransition(tmt);
                 }
             }
         }
     }
+
+    // Add final states to PDA
+    if (currentAutomatonType == MainWindow::StackAutomaton && pda) {
+        for (const auto& pair : stateItems) {
+            if (pair.second->isFinal()) {
+                pda->addFinalState(pair.first.toStdString());
+            }
+        }
+    } else if (currentAutomatonType == MainWindow::TuringMachine && tm) {
+        for (const auto& pair : stateItems) {
+            if (pair.second->isFinal()) {
+                tm->addFinalState(pair.first.toStdString());
+            }
+        }
+    }
+
+    updateAutomatonTypeDisplay(); // Update type after rebuilding
+    updateMinimap(); // Ensure minimap is up-to-date
 }
 
 void AutomatonEditor::keyPressEvent(QKeyEvent *event)
@@ -655,6 +813,7 @@ void AutomatonEditor::setupUI() {
     connect(graphicsView, &EditorView::stateClicked, this, &AutomatonEditor::onStateClicked);
     connect(graphicsView, &EditorView::backgroundClicked, this, &AutomatonEditor::onBackgroundClicked);
     connect(graphicsView, &EditorView::viewTransformed, this, &AutomatonEditor::updateResetZoomButtonVisibility);
+    connect(graphicsView, &EditorView::viewTransformed, this, &AutomatonEditor::updateMinimap);
 
     // Create a dedicated widget for the vertical toolbar.
     auto* toolbarWidget = new QWidget();
@@ -736,19 +895,61 @@ void AutomatonEditor::setupUI() {
 
     fromStateLabel = new QLabel("From: ");
     toStateLabel = new QLabel("To: ");
-    transitionSymbolEdit = new QLineEdit();
-    transitionSymbolEdit->setPlaceholderText("Symbol(s), e.g: a,b");
+
+    // FA-specific input
+    transitionInputSymbolEdit = new QLineEdit();
+    transitionInputSymbolEdit->setPlaceholderText("Symbol(s), e.g: a,b");
+    inputSymbolLabel = new QLabel("Input Symbol:");
+
+    // PDA-specific inputs
+    transitionPopSymbolEdit = new QLineEdit();
+    transitionPopSymbolEdit->setPlaceholderText("Pop Symbol (ε for none)");
+    popSymbolLabel = new QLabel("Pop Symbol:");
+    transitionPushStringEdit = new QLineEdit();
+    transitionPushStringEdit->setPlaceholderText("Push String (ε for none)");
+    pushStringLabel = new QLabel("Push String:");
+
+    // TM-specific inputs
+    tmReadLabel = new QLabel("Read Symbol:");
+    tmReadEdit = new QLineEdit();
+    tmReadEdit->setPlaceholderText("Read symbol (□ for blank)");
+    tmWriteLabel = new QLabel("Write Symbol:");
+    tmWriteEdit = new QLineEdit();
+    tmWriteEdit->setPlaceholderText("Write symbol (□ for blank)");
+    tmMoveLabel = new QLabel("Move:");
+    tmMoveCombo = new QComboBox();
+    tmMoveCombo->addItem("L");
+    tmMoveCombo->addItem("R");
+    tmMoveCombo->addItem("S");
+
     updateTransitionButton = new QPushButton("Update");
     updateTransitionButton->setObjectName("updateTransitionButton");
 
     sidebarLayout->addWidget(fromStateLabel);
     sidebarLayout->addWidget(toStateLabel);
-    inputSymbolLabel = new QLabel("Input Symbol:");
     sidebarLayout->addWidget(inputSymbolLabel);
-    sidebarLayout->addWidget(transitionSymbolEdit);
+    sidebarLayout->addWidget(transitionInputSymbolEdit);
+    sidebarLayout->addWidget(popSymbolLabel);
+    sidebarLayout->addWidget(transitionPopSymbolEdit);
+    sidebarLayout->addWidget(pushStringLabel);
+    sidebarLayout->addWidget(transitionPushStringEdit);
+    sidebarLayout->addWidget(tmReadLabel);
+    sidebarLayout->addWidget(tmReadEdit);
+    sidebarLayout->addWidget(tmWriteLabel);
+    sidebarLayout->addWidget(tmWriteEdit);
+    sidebarLayout->addWidget(tmMoveLabel);
+    sidebarLayout->addWidget(tmMoveCombo);
     sidebarLayout->addWidget(updateTransitionButton);
 
     connect(updateTransitionButton, &QPushButton::clicked, this, &AutomatonEditor::onUpdateTransitionSymbol);
+
+    // Default visibility
+    tmReadLabel->setVisible(false);
+    tmReadEdit->setVisible(false);
+    tmWriteLabel->setVisible(false);
+    tmWriteEdit->setVisible(false);
+    tmMoveLabel->setVisible(false);
+    tmMoveCombo->setVisible(false);
 
     validationBox = new QGroupBox("Validate Chain");
     validationBox->setObjectName("validationBox");
@@ -788,6 +989,9 @@ void AutomatonEditor::setupUI() {
     validationLayout->addWidget(chainInput);
     validationLayout->addLayout(controlsLayout);
     validationLayout->addWidget(validationStatusLabel);
+    validationDetailsText = new QTextEdit();
+    validationDetailsText->setReadOnly(true);
+    validationLayout->addWidget(validationDetailsText);
 
     connect(playButton, &QPushButton::clicked, this, &AutomatonEditor::onPlayValidation);
     connect(pauseButton, &QPushButton::clicked, this, &AutomatonEditor::onPauseValidation);
@@ -795,7 +999,7 @@ void AutomatonEditor::setupUI() {
     connect(clearButton, &QPushButton::clicked, this, &AutomatonEditor::onClearValidation);
     connect(instantValidateButton, &QPushButton::clicked, this, &AutomatonEditor::onInstantValidateClicked);
 
-    // ADDED: New sidebar for generating accepted strings
+    // ADDED: New sidebar for generating strings
     generationBox = new QGroupBox("Generate Accepted Strings");
     generationBox->setObjectName("generationBox");
     generationBox->setVisible(false); // hidden by default; toggled by toolbar button
@@ -835,7 +1039,7 @@ void AutomatonEditor::setupUI() {
 
     // Let the editor fill everything initially
     contentLayout->setStretchFactor(graphicsView, 1);
-    contentLayout->setStretchFactor(sidebarsLayout, 0);
+    contentLayout->setStretchFactor(contentLayout->itemAt(1)->layout(), 0);
 
 
     mainLayout->addWidget(toolbarWidget); // Add the toolbar to the left.
@@ -853,6 +1057,24 @@ void AutomatonEditor::setupUI() {
     resetZoomButton->setVisible(false);
 
     connect(resetZoomButton, &QPushButton::clicked, this, &AutomatonEditor::onResetZoomClicked);
+
+    // ADDED: Automaton type label setup
+    automatonTypeLabel = new QLabel("Type: Finite", graphicsView);
+    automatonTypeLabel->setObjectName("automatonTypeLabel");
+    automatonTypeLabel->setStyleSheet("background-color: rgba(30, 30, 30, 0.7); color: white; border-radius: 5px; padding: 3px;");
+    automatonTypeLabel->adjustSize();
+    automatonTypeLabel->move(graphicsView->width() - automatonTypeLabel->width() - 10,
+                           graphicsView->height() - automatonTypeLabel->height() - 10);
+    updateAutomatonTypeDisplay();
+
+    // ADDED: Minimap setup
+    minimapView = new MinimapView(scene, graphicsView);
+    minimapView->setObjectName("minimapView");
+    minimapView->setFixedSize(180, 120);
+    minimapView->move(10, 10);
+    minimapView->setStyleSheet("border: 2px solid #3A4D6D; border-radius: 5px; background-color: rgba(255, 254, 245, 0.7);");
+
+    updateMinimap();
 }
 
 void AutomatonEditor::applyStyles()
@@ -931,8 +1153,8 @@ void AutomatonEditor::applyStyles()
         // --- END OF FIX ---
         // Fix for invisible labels in side panels
         "QGroupBox QLabel { color: %1; }"
-        "QLineEdit, QSpinBox, QTextEdit { "
-        "    background-color: white; "
+        "QLineEdit, QSpinBox, QTextEdit, QComboBox { "
+        "    background-color: %2; "
         "    border: 1px solid %3; "
         "    border-radius: 5px; "
         "    padding: 5px; "
@@ -981,6 +1203,14 @@ void AutomatonEditor::updateResetZoomButtonVisibility()
     // Ensure the button stays in the bottom-left corner of the view
     resetZoomButton->move(10, graphicsView->height() - resetZoomButton->height() - 10);
     resetZoomButton->raise(); // Keep it on top
+
+    // ADDED: Ensure the type label stays in the bottom-right corner
+    automatonTypeLabel->move(graphicsView->width() - automatonTypeLabel->width() - 10,
+                             graphicsView->height() - automatonTypeLabel->height() - 10);
+    automatonTypeLabel->raise();
+
+    // ADDED: Minimap stays in the top-left corner
+    minimapView->move(10, 10);
 }
 
 void AutomatonEditor::onBackgroundClicked()
@@ -996,6 +1226,8 @@ void AutomatonEditor::onAddStateClicked() {
     state->setPos(100.0 + (stateCounter % 5) * 80.0, 100.0 + (stateCounter / 5) * 80.0);
     scene->addItem(state);
     stateItems[name] = state;
+    updateAutomatonTypeDisplay(); // Update type on new state
+    updateMinimap(); // Update minimap when scene content changes
 }
 
 void AutomatonEditor::onLinkToolClicked() {
@@ -1033,6 +1265,8 @@ void AutomatonEditor::onStateClicked(StateItem* state) {
                 scene->addItem(transition);
                 connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
                 startTransitionState = endState;
+                updateMinimap(); // Update minimap when scene content changes
+                updateAutomatonTypeDisplay(); // Update type on new transition
             }
             break;
 
@@ -1044,10 +1278,12 @@ void AutomatonEditor::onStateClicked(StateItem* state) {
             initialState = state;
             initialState->setIsInitial(true);
             resetEditorState(); // Return to default mode
+            updateAutomatonTypeDisplay(); // Initial state doesn't change type, but good practice
             break;
 
         case TOGGLE_FINAL:
             state->setIsFinal(!state->isFinal());
+            updateAutomatonTypeDisplay(); // Final state doesn't change type, but good practice
             resetEditorState(); // Return to default mode
             break;
 
@@ -1062,7 +1298,61 @@ void AutomatonEditor::onTransitionItemSelected(TransitionItem* item) {
     selectedTransitionItem = item;
     fromStateLabel->setText("<b>From:</b> " + item->getStartItem()->getName());
     toStateLabel->setText("<b>To:</b> " + item->getEndItem()->getName());
-    transitionSymbolEdit->setText(item->getSymbol());
+
+    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+        transitionInputSymbolEdit->setText(item->getSymbol() == '\0' ? QString("ε") : QString(QChar(item->getSymbol())));
+        inputSymbolLabel->setVisible(true);
+        transitionInputSymbolEdit->setVisible(true);
+        popSymbolLabel->setVisible(false);
+        transitionPopSymbolEdit->setVisible(false);
+        pushStringLabel->setVisible(false);
+        transitionPushStringEdit->setVisible(false);
+        tmReadLabel->setVisible(false);
+        tmReadEdit->setVisible(false);
+        tmWriteLabel->setVisible(false);
+        tmWriteEdit->setVisible(false);
+        tmMoveLabel->setVisible(false);
+        tmMoveCombo->setVisible(false);
+    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+        transitionInputSymbolEdit->setText(item->getPDAInputSymbol() == '\0' ? QString("ε") : QString(QChar(item->getPDAInputSymbol())));
+        transitionPopSymbolEdit->setText(item->getPDAPopSymbol() == '\0' ? QString("ε") : QString(QChar(item->getPDAPopSymbol())));
+        transitionPushStringEdit->setText(item->getPDAPushString());
+        inputSymbolLabel->setVisible(true);
+        transitionInputSymbolEdit->setVisible(true);
+        popSymbolLabel->setVisible(true);
+        transitionPopSymbolEdit->setVisible(true);
+        pushStringLabel->setVisible(true);
+        transitionPushStringEdit->setVisible(true);
+        tmReadLabel->setVisible(false);
+        tmReadEdit->setVisible(false);
+        tmWriteLabel->setVisible(false);
+        tmWriteEdit->setVisible(false);
+        tmMoveLabel->setVisible(false);
+        tmMoveCombo->setVisible(false);
+    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+        tmReadEdit->setText(item->getTMReadSymbol() == '\0' ? QString("□") : QString(QChar(item->getTMReadSymbol())));
+        tmWriteEdit->setText(item->getTMWriteSymbol() == '\0' ? QString("□") : QString(QChar(item->getTMWriteSymbol())));
+        int idx = 0;
+        switch (item->getTMMoveDirection()) {
+            case TM_MoveDirection::LEFT: idx = tmMoveCombo->findText("L"); break;
+            case TM_MoveDirection::RIGHT: idx = tmMoveCombo->findText("R"); break;
+            case TM_MoveDirection::STAY: idx = tmMoveCombo->findText("S"); break;
+        }
+        if (idx >= 0) tmMoveCombo->setCurrentIndex(idx);
+        inputSymbolLabel->setVisible(false);
+        transitionInputSymbolEdit->setVisible(false);
+        popSymbolLabel->setVisible(false);
+        transitionPopSymbolEdit->setVisible(false);
+        pushStringLabel->setVisible(false);
+        transitionPushStringEdit->setVisible(false);
+        tmReadLabel->setVisible(true);
+        tmReadEdit->setVisible(true);
+        tmWriteLabel->setVisible(true);
+        tmWriteEdit->setVisible(true);
+        tmMoveLabel->setVisible(true);
+        tmMoveCombo->setVisible(true);
+    }
+
     transitionBox->setVisible(true);
     adjustSidebarLayout();
 }
@@ -1074,14 +1364,29 @@ void AutomatonEditor::onInstantValidateClicked() {
         return;
     }
 
-    rebuildTransitionHandler();
+    rebuildTransitionHandler(); // Ensure the backend is up-to-date
 
-    std::string startState = initialState->getName().toStdString();
     std::string chain = chainInput->text().toStdString();
-    std::set<std::string> finalStates = getFinalStates();
+    bool accepted = false;
 
-    // Call the backend function from validacion_cadenas.cpp
-    bool accepted = esAceptada(transitionHandler, startState, finalStates, chain);
+    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+        std::string startState = initialState->getName().toStdString();
+        std::set<std::string> finalStates = getFinalStates();
+        accepted = esAceptada(transitionHandler, startState, finalStates, chain);
+    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+        if (!pda) {
+            QMessageBox::critical(this, "Error", "PDA object not initialized.");
+            return;
+        }
+        // The PDA's initial state and stack symbol are set during rebuildTransitionHandler
+        accepted = pda->accepts(chain);
+    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+        if (!tm) {
+            QMessageBox::critical(this, "Error", "TM object not initialized.");
+            return;
+        }
+        accepted = tm->accepts(chain);
+    }
 
     if (accepted) {
         validationStatusLabel->setText("Status: Accepted (Instant Check)");
@@ -1094,6 +1399,12 @@ void AutomatonEditor::onInstantValidateClicked() {
 
 // ADDED: New slot to generate accepted strings using the backend function.
 void AutomatonEditor::onGenerateStringsClicked() {
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        QMessageBox::information(this, "Feature Not Available", "String generation is not yet implemented for Stack Automata.");
+        resultsTextEdit->clear();
+        return;
+    }
+
     if (!initialState) {
         QMessageBox::warning(this, "Error", "An initial state must be set.");
         return;
@@ -1142,47 +1453,220 @@ std::vector<char> AutomatonEditor::getAlphabetVector() const {
     return alphabetVec;
 }
 
+// ADDED: Slot to update the minimap view and viewport rectangle
+void AutomatonEditor::updateMinimap() {
+    if (!minimapView || !graphicsView) return;
+
+    // Fit the entire scene into the minimap view
+    // Use itemsBoundingRect() for a tighter fit than sceneRect()
+    QRectF sceneBounds = scene->itemsBoundingRect();
+    // If the scene is empty, show a default area.
+    if (sceneBounds.isEmpty()) {
+        sceneBounds = QRectF(-100, -100, 200, 200);
+    }
+    // Add significant padding to ensure the minimap is always "zoomed out".
+    // This makes it a true overview map.
+    minimapView->fitInView(sceneBounds.adjusted(-50, -50, 50, 50), Qt::KeepAspectRatio);
+
+    // Get the visible rectangle of the main graphicsView in scene coordinates
+    QRectF visibleRect = graphicsView->mapToScene(graphicsView->viewport()->geometry()).boundingRect();
+
+    // Map the scene rectangle to the minimap's viewport coordinates.
+    // This is the crucial step to get the correct position and size for the red rectangle.
+    minimapView->setViewRect(minimapView->mapFromScene(visibleRect).boundingRect());
+}
+
+// ADDED: Function to check automaton type and update the label
+void AutomatonEditor::updateAutomatonTypeDisplay() {
+    if (!automatonTypeLabel) return;
+
+    QString typeString;
+    switch (currentAutomatonType) {
+        case MainWindow::FiniteAutomaton: {
+            bool isNFA = false;
+            QString reason;
+
+            // Check 1: Epsilon transitions
+            for (QGraphicsItem* item : scene->items()) {
+                if (auto* transItem = qgraphicsitem_cast<TransitionItem*>(item)) {
+                    if (transItem->getSymbol() == '\0') { // '\0' is epsilon for FA
+                        isNFA = true;
+                        reason = " (ε-transition)";
+                        break;
+                    }
+                }
+            }
+
+            // Check 2: Multiple transitions for the same symbol from one state
+            if (!isNFA) {
+                for (const auto& pair : stateItems) {
+                    StateItem* state = pair.second;
+                    std::map<char, int> transitionCounts;
+                    for (QGraphicsItem* item : scene->items()) {
+                        if (auto* transItem = qgraphicsitem_cast<TransitionItem*>(item)) {
+                            if (transItem->getStartItem() == state) {
+                                char sym = transItem->getSymbol();
+                                if (sym != '\0' && ++transitionCounts[sym] > 1) {
+                                    isNFA = true;
+                                    reason = " (multiple transitions)";
+                                    break; // Exit inner loop
+                                }
+                            }
+                        }
+                    }
+                    if (isNFA) break; // Exit outer loop
+                }
+            }
+            typeString = isNFA ? "NFA" + reason : "DFA";
+            break;
+        }
+        case MainWindow::StackAutomaton:
+            typeString = "PDA";
+            break;
+        case MainWindow::TuringMachine:
+            typeString = "Turing Machine";
+            break;
+    }
+    automatonTypeLabel->setText("Type: " + typeString);
+
+    bool isPDA = (currentAutomatonType == MainWindow::StackAutomaton);
+    bool isTM = (currentAutomatonType == MainWindow::TuringMachine);
+    generationBox->setVisible(!isPDA && generatePanelButton->isChecked());
+    generatePanelButton->setEnabled(!isPDA);
+
+    if (transitionBox->isVisible()) {
+        inputSymbolLabel->setVisible(currentAutomatonType == MainWindow::FiniteAutomaton);
+        transitionInputSymbolEdit->setVisible(currentAutomatonType == MainWindow::FiniteAutomaton);
+        popSymbolLabel->setVisible(isPDA);
+        transitionPopSymbolEdit->setVisible(isPDA);
+        pushStringLabel->setVisible(isPDA);
+        transitionPushStringEdit->setVisible(isPDA);
+        tmReadLabel->setVisible(isTM);
+        tmReadEdit->setVisible(isTM);
+        tmWriteLabel->setVisible(isTM);
+        tmWriteEdit->setVisible(isTM);
+        tmMoveLabel->setVisible(isTM);
+        tmMoveCombo->setVisible(isTM);
+    }
+}
+
 // FIXED: This function now validates all symbols *before* modifying the automaton state.
 void AutomatonEditor::onUpdateTransitionSymbol() {
     if (!selectedTransitionItem) return;
 
-    QString symbols = transitionSymbolEdit->text().remove(" ");
-    if (symbols.isEmpty()){
-        QMessageBox::warning(this, "Empty Symbol", "The transition symbol cannot be empty.");
-        return;
-    }
-
-    QStringList validSymbols;
-    // 1. Validate all symbols first
-    for (const QString &symbolStr : symbols.split(',')) {
-        if (symbolStr.isEmpty()) continue;
-
-        if (symbolStr.length() != 1) {
-            QMessageBox::warning(this, "Invalid Symbol", QString("The symbol '%1' must be a single character.").arg(symbolStr));
-            return; // Exit without making any changes
+    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+        QString symbols = transitionInputSymbolEdit->text().remove(" ");
+        if (symbols.isEmpty()){
+            QMessageBox::warning(this, "Empty Symbol", "The transition symbol cannot be empty.");
+            return;
         }
-        char symbol = symbolStr.at(0).toLatin1();
-        if (currentAlphabet.find(symbol) == currentAlphabet.end()) {
-             QMessageBox::warning(this, "Invalid Symbol", QString("The symbol '%1' does not belong to the alphabet.").arg(symbol));
-             return; // Exit without making any changes
+
+        // Handle epsilon transition
+        if (symbols == "ε") {
+            selectedTransitionItem->setSymbol('\0'); // Use null char for epsilon
+        } else {
+            // Validate all symbols first
+            if (symbols.length() != 1) {
+                QMessageBox::warning(this, "Invalid Symbol", QString("The symbol '%1' must be a single character.").arg(symbols));
+                return; // Exit without making any changes
+            }
+            char symbol = symbols.at(0).toLatin1();
+            if (currentAlphabet.find(symbol) == currentAlphabet.end()) {
+                 QMessageBox::warning(this, "Invalid Symbol", QString("The symbol '%1' does not belong to the alphabet.").arg(symbol));
+                 return; // Exit without making any changes
+            }
+            selectedTransitionItem->setSymbol(symbol);
         }
-        validSymbols.append(symbolStr);
+    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+        QString inputSymbolStr = transitionInputSymbolEdit->text().trimmed();
+        QString popSymbolStr = transitionPopSymbolEdit->text().trimmed();
+        QString pushStringStr = transitionPushStringEdit->text().trimmed();
+
+        char inputSymbol = '\0'; // epsilon
+        if (inputSymbolStr != "ε" && !inputSymbolStr.isEmpty()) {
+            if (inputSymbolStr.length() != 1) {
+                QMessageBox::warning(this, "Invalid Input Symbol", "Input symbol must be a single character or 'ε'.");
+                return;
+            }
+            inputSymbol = inputSymbolStr.at(0).toLatin1();
+            if (currentAlphabet.find(inputSymbol) == currentAlphabet.end()) {
+                QMessageBox::warning(this, "Invalid Input Symbol", QString("Input symbol '%1' is not in the alphabet.").arg(inputSymbol));
+                return;
+            }
+        }
+
+        char popSymbol = '\0'; // epsilon
+        if (popSymbolStr != "ε" && !popSymbolStr.isEmpty()) {
+            if (popSymbolStr.length() != 1) {
+                QMessageBox::warning(this, "Invalid Pop Symbol", "Pop symbol must be a single character or 'ε'.");
+                return;
+            }
+            popSymbol = popSymbolStr.at(0).toLatin1();
+            // For PDA, pop symbols can be from the stack alphabet, which might be different from input alphabet.
+            // For simplicity, let's assume stack alphabet is same as input alphabet for now, or allow any char.
+            // If we need a separate stack alphabet, we'd need to add it to MainWindow and AutomatonEditor.
+            // For now, let's just check if it's a valid char.
+        }
+
+        // Push string can be multiple characters or empty (epsilon)
+        QString validatedPushString;
+        if (pushStringStr != "ε" && !pushStringStr.isEmpty()) {
+            for (QChar c : pushStringStr) {
+                // Again, assuming stack alphabet is same as input alphabet for now.
+                // If not, this check needs to be against a stack alphabet.
+                if (currentAlphabet.find(c.toLatin1()) == currentAlphabet.end()) {
+                    QMessageBox::warning(this, "Invalid Push String", QString("Character '%1' in push string is not in the alphabet.").arg(c));
+                    return;
+                }
+                validatedPushString += c;
+            }
+        }
+
+        selectedTransitionItem->setPDASymbols(inputSymbol, popSymbol, validatedPushString);
+    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+        QString readStr = tmReadEdit->text().trimmed();
+        QString writeStr = tmWriteEdit->text().trimmed();
+        QString dirText = tmMoveCombo->currentText();
+        TM_MoveDirection dir = TM_MoveDirection::STAY;
+        if (dirText == "L") dir = TM_MoveDirection::LEFT;
+        else if (dirText == "R") dir = TM_MoveDirection::RIGHT;
+
+        char read = '\0';
+        if (!readStr.isEmpty() && readStr != "□") {
+            if (readStr.length() != 1) {
+                QMessageBox::warning(this, "Invalid Read Symbol", "Read symbol must be a single character or '□'.");
+                return;
+            }
+            read = readStr.at(0).toLatin1();
+            if (currentAlphabet.find(read) == currentAlphabet.end()) {
+                QMessageBox::warning(this, "Invalid Read Symbol", QString("Read symbol '%1' is not in the alphabet.").arg(read));
+                return;
+            }
+        }
+
+        char write = '\0';
+        if (!writeStr.isEmpty() && writeStr != "□") {
+            if (writeStr.length() != 1) {
+                QMessageBox::warning(this, "Invalid Write Symbol", "Write symbol must be a single character or '□'.");
+                return;
+            }
+            write = writeStr.at(0).toLatin1();
+            if (currentAlphabet.find(write) == currentAlphabet.end()) {
+                QMessageBox::warning(this, "Invalid Write Symbol", QString("Write symbol '%1' is not in the alphabet.").arg(write));
+                return;
+            }
+        }
+
+        selectedTransitionItem->setTMSymbols(read, write, dir);
     }
 
-    // 2. If all are valid, then add them to the handler
-    std::string from = selectedTransitionItem->getStartItem()->getName().toStdString();
-    std::string to = selectedTransitionItem->getEndItem()->getName().toStdString();
-    for (const QString &symbolStr : validSymbols) {
-        transitionHandler.addTransition(from, symbolStr.at(0).toLatin1(), to);
-    }
-
-    // 3. Update the UI
-    selectedTransitionItem->setSymbol(validSymbols.join(','));
 
     selectedTransitionItem->setSelected(false);
     selectedTransitionItem = nullptr;
     transitionBox->setVisible(false);
     adjustSidebarLayout();
+    rebuildTransitionHandler(); // Rebuild the backend after transition update
+    updateMinimap(); // Update minimap when scene content changes
 }
 
 void AutomatonEditor::deleteState(StateItem* stateToDelete)
@@ -1194,8 +1678,9 @@ void AutomatonEditor::deleteState(StateItem* stateToDelete)
     int deletedIndex = deletedName.right(deletedName.length() - 1).toInt(&isNumeric);
 
     // --- 1. Remove transitions FIRST ---
+    QList<QGraphicsItem*> itemsInScene = scene->items();
     QList<TransitionItem*> transitionsToDelete;
-    for (QGraphicsItem* item : scene->items()) {
+    for (QGraphicsItem* item : itemsInScene) {
         if (auto* trans = qgraphicsitem_cast<TransitionItem*>(item)) {
             if (trans->getStartItem() == stateToDelete || trans->getEndItem() == stateToDelete)
                 transitionsToDelete.append(trans);
@@ -1244,6 +1729,9 @@ void AutomatonEditor::deleteState(StateItem* stateToDelete)
     delete stateToDelete;
 
     stateCounter = std::max(0, stateCounter - 1);
+    rebuildTransitionHandler(); // Rebuild the backend after state deletion
+    updateAutomatonTypeDisplay(); // Update type on state deletion
+    updateMinimap(); // Update minimap when scene content changes
 }
 
 void AutomatonEditor::deleteTransition(TransitionItem* transitionToDelete)
@@ -1253,6 +1741,9 @@ void AutomatonEditor::deleteTransition(TransitionItem* transitionToDelete)
     // Remove from scene and delete
     scene->removeItem(transitionToDelete);
     delete transitionToDelete;
+    rebuildTransitionHandler(); // Rebuild the backend after transition deletion
+    updateAutomatonTypeDisplay(); // Update type on transition deletion
+    updateMinimap(); // Update minimap when scene content changes
 }
 
 void AutomatonEditor::resetEditorState() {
@@ -1281,6 +1772,10 @@ void AutomatonEditor::onClearValidation()
     currentValidationStates.clear();
     validationStep = 0;
     validationChain.clear();
+    pdaPath.clear();
+    tmPath.clear();
+    pdaStepIndex = 0;
+    tmStepIndex = 0;
     if(chainInput) {
         chainInput->clear();
         chainInput->setEnabled(true);
@@ -1290,6 +1785,9 @@ void AutomatonEditor::onClearValidation()
     if(validationStatusLabel) {
         validationStatusLabel->setText("Status: Idle");
         validationStatusLabel->setStyleSheet("font-weight: bold; color: black;");
+    }
+    if (validationDetailsText) {
+        validationDetailsText->clear();
     }
 }
 
@@ -1315,6 +1813,22 @@ void AutomatonEditor::onPlayValidation()
     validationChain = preservedChain;
     chainInput->setText(validationChain);
 
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        std::vector<PDA_Step> path;
+        if (!pda) {
+            QMessageBox::critical(this, "Error", "PDA object not initialized.");
+            return;
+        }
+        bool accepted = pda->accepts(validationChain.toStdString(), &path);
+        pdaPath = path;
+        pdaStepIndex = 0;
+        chainInput->setEnabled(false);
+        validationStatusLabel->setText("Status: In progress...");
+        validationStatusLabel->setStyleSheet("font-weight: bold; color: blue;");
+        validationTimer->start(800);
+        return;
+    }
+
     validationStep = 0;
     currentValidationStates.push_back(initialState);
     initialState->highlight(true);
@@ -1333,6 +1847,78 @@ void AutomatonEditor::onPauseValidation()
 
 void AutomatonEditor::onNextStepValidation()
 {
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        if (pdaPath.empty()) {
+            validationTimer->stop();
+            validationStatusLabel->setText("Status: Rejected (no path)");
+            validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+            return;
+        }
+        if (pdaStepIndex >= (int)pdaPath.size()) {
+            validationTimer->stop();
+            validationStatusLabel->setText("Status: Accepted");
+            validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+            return;
+        }
+        auto step = pdaPath[pdaStepIndex];
+        unhighlightAllStates();
+        StateItem* from = stateItems[QString::fromStdString(step.fromState)];
+        StateItem* to = stateItems[QString::fromStdString(step.toState)];
+        if (from) from->highlight(true);
+        if (to) to->highlight(true);
+        QString consumed = (step.consumed == '\0') ? "ε" : QString(QChar(step.consumed));
+        QString popped = (step.popped == '\0') ? "ε" : QString(QChar(step.popped));
+        QString pushed = step.pushed.empty() ? "ε" : QString::fromStdString(step.pushed);
+        if (validationDetailsText) {
+            validationDetailsText->append(QString("PDA: %1 -> %2, in=%3, pop=%4, push=%5, stack=%6, i=%7")
+                                          .arg(QString::fromStdString(step.fromState))
+                                          .arg(QString::fromStdString(step.toState))
+                                          .arg(consumed)
+                                          .arg(popped)
+                                          .arg(pushed)
+                                          .arg(QString::fromStdString(step.stackSnapshot))
+                                          .arg(step.inputIndex));
+        }
+        pdaStepIndex++;
+        return;
+    }
+
+    if (currentAutomatonType == MainWindow::TuringMachine) {
+        if (tmPath.empty()) {
+            validationTimer->stop();
+            validationStatusLabel->setText("Status: Rejected (no path)");
+            validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+            return;
+        }
+        if (tmStepIndex >= (int)tmPath.size()) {
+            validationTimer->stop();
+            validationStatusLabel->setText("Status: Accepted");
+            validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+            return;
+        }
+        auto step = tmPath[tmStepIndex];
+        unhighlightAllStates();
+        StateItem* from = stateItems[QString::fromStdString(step.fromState)];
+        StateItem* to = stateItems[QString::fromStdString(step.toState)];
+        if (from) from->highlight(true);
+        if (to) to->highlight(true);
+        QString moveStr = (step.moveDirection == TM_MoveDirection::LEFT ? "L" : step.moveDirection == TM_MoveDirection::RIGHT ? "R" : "S");
+        QString readStr = (step.readSymbol == '\0' ? "□" : QString(QChar(step.readSymbol)));
+        QString writeStr = (step.writeSymbol == '\0' ? "□" : QString(QChar(step.writeSymbol)));
+        if (validationDetailsText) {
+            validationDetailsText->append(QString("TM: %1 -> %2, read=%3, write=%4, move=%5, head=%6, tape=%7")
+                                          .arg(QString::fromStdString(step.fromState))
+                                          .arg(QString::fromStdString(step.toState))
+                                          .arg(readStr)
+                                          .arg(writeStr)
+                                          .arg(moveStr)
+                                          .arg(step.headPosition)
+                                          .arg(QString::fromStdString(step.tapeSnapshot)));
+        }
+        tmStepIndex++;
+        return;
+    }
+
     if (currentValidationStates.empty()) {
         validationTimer->stop();
         validationStatusLabel->setText("Status: Rejected (no possible transitions)");
@@ -1458,6 +2044,14 @@ void AutomatonEditor::loadFromFile(const QString &filePath) {
                     currentAlphabet.insert(ch.at(0).toLatin1());
                 }
             }
+        } else if (line.startsWith("Type:")) { // Load automaton type
+            QString typeStr = line.section(':', 1).trimmed();
+            if (typeStr == "FiniteAutomaton") currentAutomatonType = MainWindow::FiniteAutomaton;
+            else if (typeStr == "StackAutomaton") currentAutomatonType = MainWindow::StackAutomaton;
+            else if (typeStr == "TuringMachine") currentAutomatonType = MainWindow::TuringMachine;
+        } else if (line.startsWith("InitialStackSymbol:")) { // Load initial stack symbol
+            QString symbolStr = line.section(':', 1).trimmed();
+            if (!symbolStr.isEmpty()) pdaInitialStackSymbol = symbolStr.at(0).toLatin1();
         } else if (line == "[States]") {
             currentSection = "States";
         } else if (line == "[Transitions]") {
@@ -1494,25 +2088,55 @@ void AutomatonEditor::loadFromFile(const QString &filePath) {
 
             } else if (currentSection == "Transitions") {
                 QStringList parts = line.split(',');
-                if (parts.size() != 3) continue; // Malformed line
+                if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+                    if (parts.size() != 3) continue; // Malformed line for FA
 
-                QString fromName = parts[0].trimmed();
-                QString toName = parts[1].trimmed();
-                QString symbols = parts[2].trimmed();
+                    QString fromName = parts[0].trimmed();
+                    QString toName = parts[1].trimmed();
+                    QString symbols = parts[2].trimmed();
 
-                if (loadedStates.count(fromName) && loadedStates.count(toName)) {
-                    StateItem* start = loadedStates[fromName];
-                    StateItem* end = loadedStates[toName];
-                    auto* transition = new TransitionItem(start, end);
-                    transition->setSymbol(symbols);
-                    scene->addItem(transition);
-                    connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
+                    if (loadedStates.count(fromName) && loadedStates.count(toName)) {
+                        StateItem* start = loadedStates[fromName];
+                        StateItem* end = loadedStates[toName];
+                        auto* transition = new TransitionItem(start, end);
+                        if (symbols == "ε") {
+                            transition->setSymbol('\0');
+                        } else if (!symbols.isEmpty()) {
+                            transition->setSymbol(symbols.at(0).toLatin1());
+                        }
+                        scene->addItem(transition);
+                        connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
+                    }
+                } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+                    if (parts.size() != 5) continue; // Malformed line for PDA
+
+                    QString fromName = parts[0].trimmed();
+                    QString toName = parts[1].trimmed();
+                    QString inputSymbolStr = parts[2].trimmed();
+                    QString popSymbolStr = parts[3].trimmed();
+                    QString pushStringStr = parts[4].trimmed();
+
+                    if (loadedStates.count(fromName) && loadedStates.count(toName)) {
+                        StateItem* start = loadedStates[fromName];
+                        StateItem* end = loadedStates[toName];
+                        auto* transition = new TransitionItem(start, end);
+
+                        char input = (inputSymbolStr == "ε" || inputSymbolStr.isEmpty()) ? '\0' : inputSymbolStr.at(0).toLatin1();
+                        char pop = (popSymbolStr == "ε" || popSymbolStr.isEmpty()) ? '\0' : popSymbolStr.at(0).toLatin1();
+                        QString push = (pushStringStr == "ε" || pushStringStr.isEmpty()) ? "" : pushStringStr;
+
+                        transition->setPDASymbols(input, pop, push);
+                        scene->addItem(transition);
+                        connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
+                    }
                 }
             }
         }
     }
     file.close();
     rebuildTransitionHandler(); // Build the logic backend from the loaded items
+    updateAutomatonTypeDisplay(); // Update type after loading
+    updateMinimap(); // Update minimap after loading
 }
 
 void AutomatonEditor::onSaveAutomatonClicked() {
@@ -1549,6 +2173,16 @@ void AutomatonEditor::onSaveAutomatonClicked() {
     out << "Alphabet: ";
     for (char c : currentAlphabet) out << c << " ";
     out << "\n";
+    out << "Type: ";
+    switch (currentAutomatonType) {
+        case MainWindow::FiniteAutomaton: out << "FiniteAutomaton\n"; break;
+        case MainWindow::StackAutomaton: out << "StackAutomaton\n"; break;
+        case MainWindow::TuringMachine: out << "TuringMachine\n"; break;
+    }
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        out << "InitialStackSymbol: " << pdaInitialStackSymbol << "\n";
+    }
+    out << "\n";
 
     out << "[States]\n";
     out << "# name, x, y, initial, final\n";
@@ -1559,11 +2193,24 @@ void AutomatonEditor::onSaveAutomatonClicked() {
     out << "\n";
 
     out << "[Transitions]\n";
-    out << "# from, to, symbol(s)\n";
-    for (auto *item : scene->items()) {
-        auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
-        if (!transition) continue;
-        out << transition->getStartItem()->getName() << "," << transition->getEndItem()->getName() << "," << transition->getSymbol() << "\n";
+    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+        out << "# from, to, symbol\n";
+        for (auto *item : scene->items()) {
+            auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
+            if (!transition) continue;
+            out << transition->getStartItem()->getName() << "," << transition->getEndItem()->getName() << ","
+                << (transition->getSymbol() == '\0' ? QString("ε") : QString(QChar(transition->getSymbol()))) << "\n";
+        }
+    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+        out << "# from, to, inputSymbol, popSymbol, pushString\n";
+        for (auto *item : scene->items()) {
+            auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
+            if (!transition) continue;
+            out << transition->getStartItem()->getName() << "," << transition->getEndItem()->getName() << ","
+                << (transition->getPDAInputSymbol() == '\0' ? QString("ε") : QString(QChar(transition->getPDAInputSymbol()))) << ","
+                << (transition->getPDAPopSymbol() == '\0' ? QString("ε") : QString(QChar(transition->getPDAPopSymbol()))) << ","
+                << (transition->getPDAPushString().isEmpty() ? QString("ε") : transition->getPDAPushString()) << "\n";
+        }
     }
     // --- END OF NEW FORMAT ---
 
