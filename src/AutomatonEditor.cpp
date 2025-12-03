@@ -24,6 +24,7 @@
 #include <QButtonGroup>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QListWidget>
 #include <QGraphicsView>
 #include <QMouseEvent>
 #include <QScrollBar>
@@ -618,7 +619,7 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
       resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr),
       minimapView(nullptr), validationStep(0),
       pda(nullptr), tm(nullptr), currentAutomatonType(MainWindow::FiniteAutomaton), pdaInitialStackSymbol('\0'), tmBlankSymbol('_'),
-      validationDetailsText(nullptr), pdaStepIndex(0), tmStepIndex(0)
+      validationDetailsText(nullptr), pdaStackBox(nullptr), pdaStackList(nullptr), pdaInitialStackLabel(nullptr), pdaInitialStackEdit(nullptr), pdaStepIndex(0), tmStepIndex(0)
 {
     // ADDED: Initialize new label
     automatonTypeLabel = nullptr;
@@ -987,17 +988,35 @@ void AutomatonEditor::setupUI() {
     inputChainLabel = new QLabel("Input Chain:");
     validationLayout->addWidget(inputChainLabel);
     validationLayout->addWidget(chainInput);
+
+    pdaInitialStackLabel = new QLabel("Initial Stack Symbol:");
+    pdaInitialStackEdit = new QLineEdit();
+    pdaInitialStackEdit->setMaxLength(1);
+    pdaInitialStackEdit->setPlaceholderText("e.g., Z");
+    validationLayout->addWidget(pdaInitialStackLabel);
+    validationLayout->addWidget(pdaInitialStackEdit);
     validationLayout->addLayout(controlsLayout);
     validationLayout->addWidget(validationStatusLabel);
     validationDetailsText = new QTextEdit();
     validationDetailsText->setReadOnly(true);
     validationLayout->addWidget(validationDetailsText);
 
+    pdaStackBox = new QGroupBox("PDA Stack");
+    pdaStackBox->setObjectName("pdaStackBox");
+    pdaStackBox->setVisible(false);
+    pdaStackBox->setProperty("visibilityChanged", true);
+    auto *pdaStackLayout = new QVBoxLayout(pdaStackBox);
+    pdaStackLayout->setSpacing(10);
+    pdaStackLayout->setAlignment(Qt::AlignTop);
+    pdaStackList = new QListWidget();
+    pdaStackLayout->addWidget(pdaStackList);
+
     connect(playButton, &QPushButton::clicked, this, &AutomatonEditor::onPlayValidation);
     connect(pauseButton, &QPushButton::clicked, this, &AutomatonEditor::onPauseValidation);
     connect(nextStepButton, &QPushButton::clicked, this, &AutomatonEditor::onNextStepValidation);
     connect(clearButton, &QPushButton::clicked, this, &AutomatonEditor::onClearValidation);
     connect(instantValidateButton, &QPushButton::clicked, this, &AutomatonEditor::onInstantValidateClicked);
+    connect(pdaInitialStackEdit, &QLineEdit::editingFinished, this, &AutomatonEditor::onPdaInitialStackChanged);
 
     // ADDED: New sidebar for generating strings
     generationBox = new QGroupBox("Generate Accepted Strings");
@@ -1030,6 +1049,7 @@ void AutomatonEditor::setupUI() {
     auto *sidebarsLayout = new QVBoxLayout();
     sidebarsLayout->addWidget(transitionBox);
     sidebarsLayout->addWidget(validationBox);
+    sidebarsLayout->addWidget(pdaStackBox);
     sidebarsLayout->addWidget(generationBox); // Toggled via toolbar button
     sidebarsLayout->addStretch();
 
@@ -1153,12 +1173,13 @@ void AutomatonEditor::applyStyles()
         // --- END OF FIX ---
         // Fix for invisible labels in side panels
         "QGroupBox QLabel { color: %1; }"
-        "QLineEdit, QSpinBox, QTextEdit, QComboBox { "
+        "QLineEdit, QSpinBox, QTextEdit, QComboBox, QListWidget { "
         "    background-color: %2; "
         "    border: 1px solid %3; "
         "    border-radius: 5px; "
         "    padding: 5px; "
         "}"
+        "QListWidget::item { color: %1; }"
     ).arg(textColor.name(), bgColor.name(), borderColor.name(), panelTitleColor.name(),
           toolbarButtonColor.name(), toolbarButtonHoverColor.name(), toolbarButtonPressedColor.name(),
           toolbarButtonCheckedColor.name(), toolbarButtonCheckedHoverColor.name());
@@ -1172,6 +1193,7 @@ void AutomatonEditor::adjustSidebarLayout()
 
     bool sidebarVisible = transitionBox->isVisible() ||
                           validationBox->isVisible() ||
+                          pdaStackBox->isVisible() ||
                           generationBox->isVisible();
 
     contentLayout->setStretchFactor(graphicsView, sidebarVisible ? 4 : 1);
@@ -1242,6 +1264,7 @@ void AutomatonEditor::onValidateToolClicked()
 {
     bool isChecked = validateChainButton->isChecked();
     validationBox->setVisible(isChecked);
+    if (pdaStackBox) pdaStackBox->setVisible(isChecked && currentAutomatonType == MainWindow::StackAutomaton);
     adjustSidebarLayout();
     // If unchecking, reset the validation state
     if (!isChecked) onClearValidation();
@@ -1399,36 +1422,112 @@ void AutomatonEditor::onInstantValidateClicked() {
 
 // ADDED: New slot to generate accepted strings using the backend function.
 void AutomatonEditor::onGenerateStringsClicked() {
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
-        QMessageBox::information(this, "Feature Not Available", "String generation is not yet implemented for Stack Automata.");
-        resultsTextEdit->clear();
-        return;
-    }
-
+    rebuildTransitionHandler();
     if (!initialState) {
         QMessageBox::warning(this, "Error", "An initial state must be set.");
         return;
     }
 
     resultsTextEdit->clear();
-    std::string startState = initialState->getName().toStdString();
-    std::set<std::string> finalStates = getFinalStates();
-    std::vector<char> alphabet = getAlphabetVector();
-    int maxLength = maxLengthSpinBox->value();
-
-    // Call the robust backend function from validacion_cadenas.cpp
-    std::vector<std::string> acceptedStrings = generarCadenasConLimite(
-        transitionHandler, startState, finalStates, alphabet, maxLength);
-
-    if (acceptedStrings.empty()) {
-        resultsTextEdit->setText("No strings accepted within the given length.");
-    } else {
+    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+        std::string startState = initialState->getName().toStdString();
+        std::set<std::string> finalStates = getFinalStates();
+        std::vector<char> alphabet = getAlphabetVector();
+        int maxLength = maxLengthSpinBox->value();
         QStringList resultList;
-        for (const auto& s : acceptedStrings) {
-            // Represent the empty string with ε for clarity
-            resultList.append(s.empty() ? "ε" : QString::fromStdString(s));
+        // Check epsilon
+        if (esAceptada(transitionHandler, startState, finalStates, std::string())) {
+            resultList.append("ε");
         }
-        resultsTextEdit->setText(resultList.join("\n"));
+        // Enumerate strings
+        std::string current;
+        std::function<void(int,int)> genFA = [&](int depth, int target){
+            if (depth == target) {
+                if (esAceptada(transitionHandler, startState, finalStates, current)) {
+                    resultList.append(QString::fromStdString(current));
+                }
+                return;
+            }
+            for (char c : alphabet) {
+                current.push_back(c);
+                genFA(depth+1, target);
+                current.pop_back();
+            }
+        };
+        for (int len = 1; len <= maxLength; ++len) genFA(0, len);
+        resultsTextEdit->setText(resultList.isEmpty() ? "No strings accepted within the given length." : resultList.join("\n"));
+        return;
+    }
+
+    if (currentAutomatonType == MainWindow::StackAutomaton) {
+        if (!pda) {
+            QMessageBox::critical(this, "Error", "PDA object not initialized.");
+            return;
+        }
+        std::vector<char> alphabet = getAlphabetVector();
+        int maxLength = maxLengthSpinBox->value();
+        QStringList resultList;
+        if (pda->accepts("")) {
+            resultList.append("ε");
+        }
+        std::string current;
+        std::function<void(int,int)> gen = [&](int depth, int target){
+            if (depth == target) {
+                if (pda->accepts(current)) {
+                    resultList.append(QString::fromStdString(current));
+                }
+                return;
+            }
+            for (char c : alphabet) {
+                current.push_back(c);
+                gen(depth+1, target);
+                current.pop_back();
+            }
+        };
+        for (int len = 1; len <= maxLength; ++len) gen(0, len);
+        if (resultList.isEmpty()) {
+            resultsTextEdit->setText("No strings accepted within the given length.");
+        } else {
+            resultsTextEdit->setText(resultList.join("\n"));
+        }
+        return;
+    }
+
+    if (currentAutomatonType == MainWindow::TuringMachine) {
+        QMessageBox::information(this, "Feature Not Available", "String generation is not available for Turing Machines.");
+        return;
+    }
+}
+
+void AutomatonEditor::onPdaInitialStackChanged() {
+    if (currentAutomatonType != MainWindow::StackAutomaton) return;
+    QString text = pdaInitialStackEdit ? pdaInitialStackEdit->text().trimmed() : QString();
+    if (text.isEmpty()) {
+        QMessageBox::warning(this, "Invalid Symbol", "Initial stack symbol must be a single character.");
+        return;
+    }
+    if (text.length() != 1) {
+        QMessageBox::warning(this, "Invalid Symbol", "Please enter exactly one character.");
+        return;
+    }
+    char sym = text.at(0).toLatin1();
+    pdaInitialStackSymbol = sym;
+    rebuildTransitionHandler();
+    if (validationBox->isVisible() && !validationChain.isEmpty()) {
+        std::vector<PDA_Step> path;
+        if (pda) {
+            pda->accepts(validationChain.toStdString(), &path);
+        }
+        pdaPath = path;
+        pdaStepIndex = 0;
+        if (pdaStackList) {
+            pdaStackList->clear();
+            if (!pdaPath.empty()) {
+                for (char c : pdaPath.front().stackSnapshot) {
+                    pdaStackList->addItem(QString(QChar(c)));
+                }
+            }
+        }
     }
 }
 
@@ -1531,8 +1630,20 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
 
     bool isPDA = (currentAutomatonType == MainWindow::StackAutomaton);
     bool isTM = (currentAutomatonType == MainWindow::TuringMachine);
-    generationBox->setVisible(!isPDA && generatePanelButton->isChecked());
-    generatePanelButton->setEnabled(!isPDA);
+    generationBox->setVisible(generatePanelButton->isChecked());
+    generatePanelButton->setEnabled(true);
+    if (pdaStackBox) pdaStackBox->setVisible(isPDA && validationBox->isVisible());
+    if (pdaInitialStackLabel) pdaInitialStackLabel->setVisible(isPDA && validationBox->isVisible());
+    if (pdaInitialStackEdit) {
+        pdaInitialStackEdit->setVisible(isPDA && validationBox->isVisible());
+        if (isPDA) {
+            if (pdaInitialStackSymbol != '\0') {
+                pdaInitialStackEdit->setText(QString(QChar(pdaInitialStackSymbol)));
+            } else {
+                pdaInitialStackEdit->clear();
+            }
+        }
+    }
 
     if (transitionBox->isVisible()) {
         inputSymbolLabel->setVisible(currentAutomatonType == MainWindow::FiniteAutomaton);
@@ -1776,6 +1887,9 @@ void AutomatonEditor::onClearValidation()
     tmPath.clear();
     pdaStepIndex = 0;
     tmStepIndex = 0;
+    if (pdaStackList) {
+        pdaStackList->clear();
+    }
     if(chainInput) {
         chainInput->clear();
         chainInput->setEnabled(true);
@@ -1822,6 +1936,15 @@ void AutomatonEditor::onPlayValidation()
         bool accepted = pda->accepts(validationChain.toStdString(), &path);
         pdaPath = path;
         pdaStepIndex = 0;
+        if (pdaStackList) {
+            pdaStackList->clear();
+            if (!pdaPath.empty()) {
+                std::string snap = pdaPath.front().stackSnapshot;
+                for (char c : snap) {
+                    pdaStackList->addItem(QString(QChar(c)));
+                }
+            }
+        }
         chainInput->setEnabled(false);
         validationStatusLabel->setText("Status: In progress...");
         validationStatusLabel->setStyleSheet("font-weight: bold; color: blue;");
@@ -1878,6 +2001,12 @@ void AutomatonEditor::onNextStepValidation()
                                           .arg(pushed)
                                           .arg(QString::fromStdString(step.stackSnapshot))
                                           .arg(step.inputIndex));
+        }
+        if (pdaStackList) {
+            pdaStackList->clear();
+            for (char c : step.stackSnapshot) {
+                pdaStackList->addItem(QString(QChar(c)));
+            }
         }
         pdaStepIndex++;
         return;

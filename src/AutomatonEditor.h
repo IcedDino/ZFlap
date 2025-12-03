@@ -40,6 +40,7 @@ class QPushButton;
 class QLabel;
 class QLineEdit;
 class QTextEdit;
+class QListWidget;
 class QButtonGroup;
 class QSpinBox;
 class QPainter;
@@ -133,6 +134,7 @@ private slots:
     void onInstantValidateClicked();
     void onGenerateStringsClicked();
     void onGenerateToolClicked();
+    void onPdaInitialStackChanged();
 
     // ADDED: Slots for zoom reset button
     void onBackgroundClicked();
@@ -192,6 +194,10 @@ private:
     QPushButton *instantValidateButton;
     QLabel *validationStatusLabel;
     QTextEdit *validationDetailsText;
+    QGroupBox *pdaStackBox;
+    QListWidget *pdaStackList;
+    QLabel *pdaInitialStackLabel;
+    QLineEdit *pdaInitialStackEdit;
 
     // --- Transition Sidebar ---
     QGroupBox *transitionBox;
