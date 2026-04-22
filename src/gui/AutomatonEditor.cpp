@@ -16,7 +16,7 @@
 #include <vector>
 #include <QTextEdit>
 #include <QSpinBox>
-#include <Transition.h>
+#include "core/Transition.h"
 #include <QSettings>
 #include <QVBoxLayout>
 #include <QPushButton>
@@ -618,7 +618,7 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
       updateTransitionButton(nullptr), generationBox(nullptr), maxLengthSpinBox(nullptr), generateButton(nullptr),
       resultsTextEdit(nullptr), inputSymbolLabel(nullptr), inputChainLabel(nullptr), maxLengthLabel(nullptr), resultsLabel(nullptr),
       minimapView(nullptr), validationStep(0),
-      pda(nullptr), tm(nullptr), currentAutomatonType(MainWindow::FiniteAutomaton), pdaInitialStackSymbol('\0'), tmBlankSymbol('_'),
+      pda(nullptr), tm(nullptr), currentAutomatonType(AutomatonType::FiniteAutomaton), pdaInitialStackSymbol('\0'), tmBlankSymbol('_'),
       validationDetailsText(nullptr), pdaStackBox(nullptr), pdaStackList(nullptr), pdaInitialStackLabel(nullptr), pdaInitialStackEdit(nullptr), pdaStepIndex(0), tmStepIndex(0)
 {
     // ADDED: Initialize new label
@@ -639,20 +639,20 @@ AutomatonEditor::~AutomatonEditor()
 }
 
 void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet) {
-    loadAutomaton(name, alphabet, MainWindow::FiniteAutomaton, '\0'); // Call the new overload with default type
+    loadAutomaton(name, alphabet, AutomatonType::FiniteAutomaton, '\0'); // Call the new overload with default type
 }
 
-void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet, MainWindow::AutomatonType type, char initialStackSymbol) {
+void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& alphabet, AutomatonType type, char initialStackSymbol) {
     clearAutomaton();
     automatonName = name;
     currentAlphabet = alphabet;
     currentAutomatonType = type;
     pdaInitialStackSymbol = initialStackSymbol;
 
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         // Initialize PDA with a dummy initial state for now, will be updated in rebuildTransitionHandler
         pda = new PDA("dummy", pdaInitialStackSymbol);
-    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine) {
         tm = new TM("dummy", tmBlankSymbol);
     }
 
@@ -697,10 +697,10 @@ void AutomatonEditor::rebuildTransitionHandler()
         tm = nullptr;
     }
 
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         std::string pdaStartState = initialState ? initialState->getName().toStdString() : "q0";
         pda = new PDA(pdaStartState, pdaInitialStackSymbol);
-    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine) {
         std::string tmStartState = initialState ? initialState->getName().toStdString() : "q0";
         tm = new TM(tmStartState, tmBlankSymbol);
     }
@@ -711,13 +711,13 @@ void AutomatonEditor::rebuildTransitionHandler()
             std::string from = transItem->getStartItem()->getName().toStdString();
             std::string to = transItem->getEndItem()->getName().toStdString();
 
-            if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+            if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
                 // Get the symbols from the label, e.g., "a,b"
                 char symbol = transItem->getSymbol();
                 if (symbol != '\0') { // '\0' represents epsilon for FA
                     transitionHandler.addTransition(from, symbol, to);
                 }
-            } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+            } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
                 if (pda) {
                     PDA_Transition pdaTrans;
                     pdaTrans.from = from;
@@ -727,7 +727,7 @@ void AutomatonEditor::rebuildTransitionHandler()
                     pdaTrans.push = transItem->getPDAPushString().toStdString();
                     pda->addTransition(pdaTrans);
                 }
-            } else if (currentAutomatonType == MainWindow::TuringMachine) {
+            } else if (currentAutomatonType == AutomatonType::TuringMachine) {
                 if (tm) {
                     TM_Transition tmt;
                     tmt.fromState = from;
@@ -742,13 +742,13 @@ void AutomatonEditor::rebuildTransitionHandler()
     }
 
     // Add final states to PDA
-    if (currentAutomatonType == MainWindow::StackAutomaton && pda) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton && pda) {
         for (const auto& pair : stateItems) {
             if (pair.second->isFinal()) {
                 pda->addFinalState(pair.first.toStdString());
             }
         }
-    } else if (currentAutomatonType == MainWindow::TuringMachine && tm) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine && tm) {
         for (const auto& pair : stateItems) {
             if (pair.second->isFinal()) {
                 tm->addFinalState(pair.first.toStdString());
@@ -1264,7 +1264,7 @@ void AutomatonEditor::onValidateToolClicked()
 {
     bool isChecked = validateChainButton->isChecked();
     validationBox->setVisible(isChecked);
-    if (pdaStackBox) pdaStackBox->setVisible(isChecked && currentAutomatonType == MainWindow::StackAutomaton);
+    if (pdaStackBox) pdaStackBox->setVisible(isChecked && currentAutomatonType == AutomatonType::StackAutomaton);
     adjustSidebarLayout();
     // If unchecking, reset the validation state
     if (!isChecked) onClearValidation();
@@ -1322,7 +1322,7 @@ void AutomatonEditor::onTransitionItemSelected(TransitionItem* item) {
     fromStateLabel->setText("<b>From:</b> " + item->getStartItem()->getName());
     toStateLabel->setText("<b>To:</b> " + item->getEndItem()->getName());
 
-    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+    if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
         transitionInputSymbolEdit->setText(item->getSymbol() == '\0' ? QString("ε") : QString(QChar(item->getSymbol())));
         inputSymbolLabel->setVisible(true);
         transitionInputSymbolEdit->setVisible(true);
@@ -1336,7 +1336,7 @@ void AutomatonEditor::onTransitionItemSelected(TransitionItem* item) {
         tmWriteEdit->setVisible(false);
         tmMoveLabel->setVisible(false);
         tmMoveCombo->setVisible(false);
-    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+    } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
         transitionInputSymbolEdit->setText(item->getPDAInputSymbol() == '\0' ? QString("ε") : QString(QChar(item->getPDAInputSymbol())));
         transitionPopSymbolEdit->setText(item->getPDAPopSymbol() == '\0' ? QString("ε") : QString(QChar(item->getPDAPopSymbol())));
         transitionPushStringEdit->setText(item->getPDAPushString());
@@ -1352,7 +1352,7 @@ void AutomatonEditor::onTransitionItemSelected(TransitionItem* item) {
         tmWriteEdit->setVisible(false);
         tmMoveLabel->setVisible(false);
         tmMoveCombo->setVisible(false);
-    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine) {
         tmReadEdit->setText(item->getTMReadSymbol() == '\0' ? QString("□") : QString(QChar(item->getTMReadSymbol())));
         tmWriteEdit->setText(item->getTMWriteSymbol() == '\0' ? QString("□") : QString(QChar(item->getTMWriteSymbol())));
         int idx = 0;
@@ -1392,18 +1392,18 @@ void AutomatonEditor::onInstantValidateClicked() {
     std::string chain = chainInput->text().toStdString();
     bool accepted = false;
 
-    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+    if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
         std::string startState = initialState->getName().toStdString();
         std::set<std::string> finalStates = getFinalStates();
-        accepted = esAceptada(transitionHandler, startState, finalStates, chain);
-    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+        accepted = isAccepted(transitionHandler, startState, finalStates, chain);
+    } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
         if (!pda) {
             QMessageBox::critical(this, "Error", "PDA object not initialized.");
             return;
         }
         // The PDA's initial state and stack symbol are set during rebuildTransitionHandler
         accepted = pda->accepts(chain);
-    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine) {
         if (!tm) {
             QMessageBox::critical(this, "Error", "TM object not initialized.");
             return;
@@ -1429,21 +1429,21 @@ void AutomatonEditor::onGenerateStringsClicked() {
     }
 
     resultsTextEdit->clear();
-    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+    if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
         std::string startState = initialState->getName().toStdString();
         std::set<std::string> finalStates = getFinalStates();
         std::vector<char> alphabet = getAlphabetVector();
         int maxLength = maxLengthSpinBox->value();
         QStringList resultList;
         // Check epsilon
-        if (esAceptada(transitionHandler, startState, finalStates, std::string())) {
+        if (isAccepted(transitionHandler, startState, finalStates, std::string())) {
             resultList.append("ε");
         }
         // Enumerate strings
         std::string current;
         std::function<void(int,int)> genFA = [&](int depth, int target){
             if (depth == target) {
-                if (esAceptada(transitionHandler, startState, finalStates, current)) {
+                if (isAccepted(transitionHandler, startState, finalStates, current)) {
                     resultList.append(QString::fromStdString(current));
                 }
                 return;
@@ -1459,7 +1459,7 @@ void AutomatonEditor::onGenerateStringsClicked() {
         return;
     }
 
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         if (!pda) {
             QMessageBox::critical(this, "Error", "PDA object not initialized.");
             return;
@@ -1493,14 +1493,14 @@ void AutomatonEditor::onGenerateStringsClicked() {
         return;
     }
 
-    if (currentAutomatonType == MainWindow::TuringMachine) {
+    if (currentAutomatonType == AutomatonType::TuringMachine) {
         QMessageBox::information(this, "Feature Not Available", "String generation is not available for Turing Machines.");
         return;
     }
 }
 
 void AutomatonEditor::onPdaInitialStackChanged() {
-    if (currentAutomatonType != MainWindow::StackAutomaton) return;
+    if (currentAutomatonType != AutomatonType::StackAutomaton) return;
     QString text = pdaInitialStackEdit ? pdaInitialStackEdit->text().trimmed() : QString();
     if (text.isEmpty()) {
         QMessageBox::warning(this, "Invalid Symbol", "Initial stack symbol must be a single character.");
@@ -1581,7 +1581,7 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
 
     QString typeString;
     switch (currentAutomatonType) {
-        case MainWindow::FiniteAutomaton: {
+        case AutomatonType::FiniteAutomaton: {
             bool isNFA = false;
             QString reason;
 
@@ -1619,17 +1619,17 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
             typeString = isNFA ? "NFA" + reason : "DFA";
             break;
         }
-        case MainWindow::StackAutomaton:
+        case AutomatonType::StackAutomaton:
             typeString = "PDA";
             break;
-        case MainWindow::TuringMachine:
+        case AutomatonType::TuringMachine:
             typeString = "Turing Machine";
             break;
     }
     automatonTypeLabel->setText("Type: " + typeString);
 
-    bool isPDA = (currentAutomatonType == MainWindow::StackAutomaton);
-    bool isTM = (currentAutomatonType == MainWindow::TuringMachine);
+    bool isPDA = (currentAutomatonType == AutomatonType::StackAutomaton);
+    bool isTM = (currentAutomatonType == AutomatonType::TuringMachine);
     generationBox->setVisible(generatePanelButton->isChecked());
     generatePanelButton->setEnabled(true);
     if (pdaStackBox) pdaStackBox->setVisible(isPDA && validationBox->isVisible());
@@ -1646,8 +1646,8 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
     }
 
     if (transitionBox->isVisible()) {
-        inputSymbolLabel->setVisible(currentAutomatonType == MainWindow::FiniteAutomaton);
-        transitionInputSymbolEdit->setVisible(currentAutomatonType == MainWindow::FiniteAutomaton);
+        inputSymbolLabel->setVisible(currentAutomatonType == AutomatonType::FiniteAutomaton);
+        transitionInputSymbolEdit->setVisible(currentAutomatonType == AutomatonType::FiniteAutomaton);
         popSymbolLabel->setVisible(isPDA);
         transitionPopSymbolEdit->setVisible(isPDA);
         pushStringLabel->setVisible(isPDA);
@@ -1665,7 +1665,7 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
 void AutomatonEditor::onUpdateTransitionSymbol() {
     if (!selectedTransitionItem) return;
 
-    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+    if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
         QString symbols = transitionInputSymbolEdit->text().remove(" ");
         if (symbols.isEmpty()){
             QMessageBox::warning(this, "Empty Symbol", "The transition symbol cannot be empty.");
@@ -1688,7 +1688,7 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
             }
             selectedTransitionItem->setSymbol(symbol);
         }
-    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+    } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
         QString inputSymbolStr = transitionInputSymbolEdit->text().trimmed();
         QString popSymbolStr = transitionPopSymbolEdit->text().trimmed();
         QString pushStringStr = transitionPushStringEdit->text().trimmed();
@@ -1734,7 +1734,7 @@ void AutomatonEditor::onUpdateTransitionSymbol() {
         }
 
         selectedTransitionItem->setPDASymbols(inputSymbol, popSymbol, validatedPushString);
-    } else if (currentAutomatonType == MainWindow::TuringMachine) {
+    } else if (currentAutomatonType == AutomatonType::TuringMachine) {
         QString readStr = tmReadEdit->text().trimmed();
         QString writeStr = tmWriteEdit->text().trimmed();
         QString dirText = tmMoveCombo->currentText();
@@ -1927,7 +1927,7 @@ void AutomatonEditor::onPlayValidation()
     validationChain = preservedChain;
     chainInput->setText(validationChain);
 
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         std::vector<PDA_Step> path;
         if (!pda) {
             QMessageBox::critical(this, "Error", "PDA object not initialized.");
@@ -1970,7 +1970,7 @@ void AutomatonEditor::onPauseValidation()
 
 void AutomatonEditor::onNextStepValidation()
 {
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         if (pdaPath.empty()) {
             validationTimer->stop();
             validationStatusLabel->setText("Status: Rejected (no path)");
@@ -2012,7 +2012,7 @@ void AutomatonEditor::onNextStepValidation()
         return;
     }
 
-    if (currentAutomatonType == MainWindow::TuringMachine) {
+    if (currentAutomatonType == AutomatonType::TuringMachine) {
         if (tmPath.empty()) {
             validationTimer->stop();
             validationStatusLabel->setText("Status: Rejected (no path)");
@@ -2175,9 +2175,9 @@ void AutomatonEditor::loadFromFile(const QString &filePath) {
             }
         } else if (line.startsWith("Type:")) { // Load automaton type
             QString typeStr = line.section(':', 1).trimmed();
-            if (typeStr == "FiniteAutomaton") currentAutomatonType = MainWindow::FiniteAutomaton;
-            else if (typeStr == "StackAutomaton") currentAutomatonType = MainWindow::StackAutomaton;
-            else if (typeStr == "TuringMachine") currentAutomatonType = MainWindow::TuringMachine;
+            if (typeStr == "FiniteAutomaton") currentAutomatonType = AutomatonType::FiniteAutomaton;
+            else if (typeStr == "StackAutomaton") currentAutomatonType = AutomatonType::StackAutomaton;
+            else if (typeStr == "TuringMachine") currentAutomatonType = AutomatonType::TuringMachine;
         } else if (line.startsWith("InitialStackSymbol:")) { // Load initial stack symbol
             QString symbolStr = line.section(':', 1).trimmed();
             if (!symbolStr.isEmpty()) pdaInitialStackSymbol = symbolStr.at(0).toLatin1();
@@ -2217,7 +2217,7 @@ void AutomatonEditor::loadFromFile(const QString &filePath) {
 
             } else if (currentSection == "Transitions") {
                 QStringList parts = line.split(',');
-                if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+                if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
                     if (parts.size() != 3) continue; // Malformed line for FA
 
                     QString fromName = parts[0].trimmed();
@@ -2236,7 +2236,7 @@ void AutomatonEditor::loadFromFile(const QString &filePath) {
                         scene->addItem(transition);
                         connect(transition, &TransitionItem::itemSelected, this, &AutomatonEditor::onTransitionItemSelected);
                     }
-                } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+                } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
                     if (parts.size() != 5) continue; // Malformed line for PDA
 
                     QString fromName = parts[0].trimmed();
@@ -2304,11 +2304,11 @@ void AutomatonEditor::onSaveAutomatonClicked() {
     out << "\n";
     out << "Type: ";
     switch (currentAutomatonType) {
-        case MainWindow::FiniteAutomaton: out << "FiniteAutomaton\n"; break;
-        case MainWindow::StackAutomaton: out << "StackAutomaton\n"; break;
-        case MainWindow::TuringMachine: out << "TuringMachine\n"; break;
+        case AutomatonType::FiniteAutomaton: out << "FiniteAutomaton\n"; break;
+        case AutomatonType::StackAutomaton: out << "StackAutomaton\n"; break;
+        case AutomatonType::TuringMachine: out << "TuringMachine\n"; break;
     }
-    if (currentAutomatonType == MainWindow::StackAutomaton) {
+    if (currentAutomatonType == AutomatonType::StackAutomaton) {
         out << "InitialStackSymbol: " << pdaInitialStackSymbol << "\n";
     }
     out << "\n";
@@ -2322,7 +2322,7 @@ void AutomatonEditor::onSaveAutomatonClicked() {
     out << "\n";
 
     out << "[Transitions]\n";
-    if (currentAutomatonType == MainWindow::FiniteAutomaton) {
+    if (currentAutomatonType == AutomatonType::FiniteAutomaton) {
         out << "# from, to, symbol\n";
         for (auto *item : scene->items()) {
             auto *transition = qgraphicsitem_cast<TransitionItem*>(item);
@@ -2330,7 +2330,7 @@ void AutomatonEditor::onSaveAutomatonClicked() {
             out << transition->getStartItem()->getName() << "," << transition->getEndItem()->getName() << ","
                 << (transition->getSymbol() == '\0' ? QString("ε") : QString(QChar(transition->getSymbol()))) << "\n";
         }
-    } else if (currentAutomatonType == MainWindow::StackAutomaton) {
+    } else if (currentAutomatonType == AutomatonType::StackAutomaton) {
         out << "# from, to, inputSymbol, popSymbol, pushString\n";
         for (auto *item : scene->items()) {
             auto *transition = qgraphicsitem_cast<TransitionItem*>(item);

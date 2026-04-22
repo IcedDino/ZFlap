@@ -13,7 +13,7 @@
 #include <QWidget>
 #include <QFont>
 #include <QPalette>
-#include "Alfabeto.h"
+#include "utils/Alphabet.h"
 #include <set>
 
 class AlphabetSelector : public QDialog

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "Transition.h"
+#include "core/Transition.h"
 
 // Test 1: Single DFA transition (basic)
 TEST(TransitionTest, SingleTransition) {

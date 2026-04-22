@@ -16,14 +16,14 @@
 #include <QMouseEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QObject>
-#include "Transition.h"
+#include "core/Transition.h"
 #include <set>
 #include <map>
 #include <vector>
-#include "validacion_cadenas.h"
-#include "MainWindow.h" // Include MainWindow.h for AutomatonType enum
-#include "AdP.h"
-#include "TM.h"
+#include "utils/StringValidation.h"
+#include "core/AutomatonModel.h"
+#include "core/PDA.h"
+#include "core/TM.h"
 
 // --- Full definitions needed for member variables ---
 #include <QGroupBox>
@@ -46,6 +46,7 @@ class QSpinBox;
 class QPainter;
 class QStyleOptionGraphicsItem;
 class QGraphicsTextItem;
+class QComboBox;
 
 
 /**
@@ -109,7 +110,7 @@ public:
     explicit AutomatonEditor(QWidget *parent = nullptr);
     ~AutomatonEditor() override;
     void loadAutomaton(const QString& name, const std::set<char>& alphabet); // Existing overload
-    void loadAutomaton(const QString& name, const std::set<char>& alphabet, MainWindow::AutomatonType type, char initialStackSymbol = '\0'); // New overload
+    void loadAutomaton(const QString& name, const std::set<char>& alphabet, AutomatonType type, char initialStackSymbol = '\0'); // New overload
     void loadFromFile(const QString& filePath);
 
 private slots:
@@ -234,7 +235,7 @@ private:
     Transition transitionHandler; // For Finite Automata
     PDA* pda; // For Stack Automata
     TM* tm;   // For Turing Machines
-    MainWindow::AutomatonType currentAutomatonType;
+    AutomatonType currentAutomatonType;
     char pdaInitialStackSymbol;
     char tmBlankSymbol;
     std::set<char> currentAlphabet;

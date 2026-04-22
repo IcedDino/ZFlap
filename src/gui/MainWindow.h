@@ -5,8 +5,9 @@
 #include <vector>
 #include <set>
 
-#include "Lexer.h" 
-#include "AdP.h" // Include AdP.h
+#include "utils/Lexer.h"
+#include "core/PDA.h"
+#include "core/AutomatonModel.h"
 
 // --- Forward Declarations ---
 class QWidget;
@@ -41,13 +42,6 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    // Enum for automaton types
-    enum AutomatonType {
-        FiniteAutomaton,
-        StackAutomaton,
-        TuringMachine
-    };
-
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 

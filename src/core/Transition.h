@@ -82,22 +82,23 @@ public:
     void clear();
 
     void addTransition(const std::string &from, char symbol, const std::string &to);
-    
-    /**
-     * @brief Get all possible next states for a given state-symbol pair
-     * 
-     * Returns a vector containing all destination states that can be reached
-     * from the given state with the given input symbol.
-     * 
-     * @param from The source state
-     * @param symbol The input symbol
-     * @return A vector of destination states. Returns an empty vector if no
-     *         transition exists for the given state-symbol pair.
-     * 
-     * @note The order of states in the returned vector is not guaranteed to be
-     *       consistent across calls, as it depends on the internal hash map ordering.
-     */
+
+    // Remove a specific (from, symbol, to) transition. Removes the first matching entry.
+    void removeTransition(const std::string &from, char symbol, const std::string &to);
+
+    // Remove all transitions originating from the given state.
+    void removeAllFrom(const std::string &state);
+
+    // Remove all transitions that have the given state as a destination.
+    void removeAllTo(const std::string &state);
+
     std::vector<std::string> getNextStates(const std::string &from, char symbol) const;
+
+    // Total number of (from, symbol, to) entries stored.
+    size_t getCount() const;
+
+    // Returns every transition as (from, symbol, to) tuples.
+    std::vector<std::tuple<std::string, char, std::string>> getAllTransitions() const;
 };
 
 #endif

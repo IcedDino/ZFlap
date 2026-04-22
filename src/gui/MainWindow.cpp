@@ -246,9 +246,9 @@ void MainWindow::createAutomatonDialogs() {
     automatonTypeComboBox->setStyleSheet(QString(
         "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 5px; }"
     ).arg(WARM_WHITE.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    automatonTypeComboBox->addItem("Autómata Finito", FiniteAutomaton);
-    automatonTypeComboBox->addItem("Autómata de Pila", StackAutomaton);
-    automatonTypeComboBox->addItem("Máquina de Turing", TuringMachine);
+    automatonTypeComboBox->addItem("Autómata Finito",  static_cast<int>(AutomatonType::FiniteAutomaton));
+    automatonTypeComboBox->addItem("Autómata de Pila", static_cast<int>(AutomatonType::StackAutomaton));
+    automatonTypeComboBox->addItem("Máquina de Turing", static_cast<int>(AutomatonType::TuringMachine));
 
     // Initial Stack Symbol (for Stack Automaton)
     initialStackSymbolComboBox = new QComboBox();
@@ -287,8 +287,8 @@ void MainWindow::createAutomatonDialogs() {
     connect(createCancelButton, &QPushButton::clicked, this, &MainWindow::onCancelCreate);
     connect(automatonTypeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index){
         AutomatonType type = static_cast<AutomatonType>(automatonTypeComboBox->itemData(index).toInt());
-        initialStackSymbolComboBox->setVisible(type == StackAutomaton);
-        initialStackSymbolComboBox->setEnabled(type == StackAutomaton);
+        initialStackSymbolComboBox->setVisible(type == AutomatonType::StackAutomaton);
+        initialStackSymbolComboBox->setEnabled(type == AutomatonType::StackAutomaton);
     });
 
     // Initialize visibility based on default selection
@@ -489,7 +489,7 @@ void MainWindow::onCreateNewAutomaton() {
 
     AutomatonType type = static_cast<AutomatonType>(automatonTypeComboBox->currentData().toInt());
     char initialStackSymbol = '\0';
-    if (type == StackAutomaton) {
+    if (type == AutomatonType::StackAutomaton) {
         if (initialStackSymbolComboBox->currentText().isEmpty()) {
             QMessageBox::warning(this, "Datos incompletos", "El símbolo inicial de pila es obligatorio para Autómatas de Pila.");
             return;

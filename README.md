@@ -1,53 +1,107 @@
-# ZFlap - Finite Automaton Transition System
+# ZFlap - Automaton Visualization and Simulation
 
 ## Overview
 
-ZFlap is a C++ library that provides a flexible implementation of finite automaton transition systems. It supports both deterministic finite automata (DFA) and non-deterministic finite automata (NFA) through a unified interface.
+ZFlap is a C++17 desktop application for finite automaton theory education and visualization. It provides both a graphical Qt6-based interface and a reusable core library for working with:
+- **Finite Automata** (DFA/NFA)
+- **Pushdown Automata** (PDA)
+- **Turing Machines** (TM)
+- **Lexical and Syntactic Analyzers**
+
+## Recent Architecture Improvements
+
+The codebase has been significantly refactored to separate core automaton logic from GUI code:
+- ✅ Clean directory structure (`src/core/`, `src/gui/`, `src/utils/`)
+- ✅ New `AutomatonModel` class - use automaton logic **without Qt**
+- ✅ Consistent English naming (no more mixed languages)
+- ✅ Testable core logic independent of GUI
+- 📖 See [ARCHITECTURE_IMPROVEMENTS.md](ARCHITECTURE_IMPROVEMENTS.md) for details
+- 📖 See [REFACTORING_GUIDE.md](REFACTORING_GUIDE.md) for migration guide
 
 ## Features
 
-- **Flexible Transition System**: Support for both DFA and NFA representations
-- **Efficient Lookup**: Uses hash maps for O(1) average-case transition lookup
-- **Multiple Destinations**: Allows multiple transitions from the same state-symbol pair (NFA support)
-- **Modern C++**: Built with C++17 features and standard library containers
-- **Comprehensive Testing**: Includes Google Test framework for unit testing
+### GUI Application
+- **Visual Automaton Editor**: Drag-and-drop state and transition creation
+- **Multiple Automaton Types**: Switch between FA, PDA, and TM
+- **String Validation**: Test if strings are accepted
+- **String Generation**: Generate accepted strings up to specified length
+- **Step-by-Step Simulation**: Visualize automaton execution
+- **File I/O**: Save and load automaton definitions
+- **Lexical Analysis**: Static lexical analyzer for Java-like syntax
 
-## Architecture
+### Core Library (New!)
+- **AutomatonModel Class**: Complete automaton logic **independent of Qt**
+- **Validation API**: Validate strings programmatically
+- **Generation API**: Generate accepted strings
+- **Type Detection**: Automatically classify as DFA/NFA/PDA/TM
+- **Reusable**: Use in CLI tools, tests, backend services
+- **Testable**: Full unit testing without GUI dependencies
 
-The library consists of three main components:
+## Project Structure
 
-### TransKey Structure
-A lightweight structure that combines a state and input symbol to form a unique key for transition lookup.
-
-### KeyHash Structure
-A custom hash function that enables the use of TransKey objects as keys in unordered_map containers.
-
-### Transition Class
-The main class that implements the transition function δ: Q × Σ → P(Q), where:
-- Q is the set of states
-- Σ is the input alphabet
-- P(Q) is the power set of Q (set of all possible states)
+```
+ZFlap/
+├── src/
+│   ├── core/           # Core automaton logic (Qt-independent)
+│   │   ├── AutomatonModel.{h,cpp}   # NEW: Main model class
+│   │   ├── Transition.{h,cpp}       # Transition function
+│   │   ├── Automaton.{h,cpp}        # FA implementation
+│   │   ├── PDA.{h,cpp}              # Pushdown Automaton
+│   │   └── TM.{h,cpp}               # Turing Machine
+│   ├── gui/            # Qt6 GUI components
+│   │   ├── MainWindow.{h,cpp}
+│   │   ├── AutomatonEditor.{h,cpp}
+│   │   └── AlphabetSelector.{h,cpp}
+│   ├── utils/          # Utility functions
+│   │   ├── StringValidation.{h,cpp}
+│   │   ├── Alphabet.{h,cpp}
+│   │   └── Lexer.{l,h}
+│   └── main.cpp
+├── test/               # Unit tests
+├── examples/           # Usage examples
+└── docs/              # Documentation
+```
 
 ## Usage Example
 
+### Using AutomatonModel (No GUI Required!)
+
 ```cpp
-#include "Transition.h"
+#include "core/AutomatonModel.h"
 
-// Create a transition system
-Transition t;
+// Create a DFA that accepts strings ending in "ab"
+AutomatonModel automaton(AutomatonType::FiniteAutomaton);
 
-// Add transitions (supports NFA)
-t.addTransition("q0", 'a', "q1");
-t.addTransition("q0", 'a', "q2");  // Multiple destinations from same state-symbol
-t.addTransition("q1", 'b', "q3");
-t.addTransition("q2", 'b', "q3");
+// Add states
+automaton.addState("q0");
+automaton.addState("q1");
+automaton.addState("q2");
 
-// Query transitions
-auto nextStates = t.getNextStates("q0", 'a');
-// Returns: {"q1", "q2"}
+// Configure automaton
+automaton.setInitialState("q0");
+automaton.addFinalState("q2");
+automaton.setAlphabet({'a', 'b'});
 
-auto noTransition = t.getNextStates("q0", 'c');
-// Returns: {} (empty vector)
+// Add transitions
+automaton.addTransition("q0", 'a', "q1");
+automaton.addTransition("q1", 'b', "q2");
+// ... more transitions ...
+
+// Validate strings (NO GUI NEEDED!)
+ValidationResult result = automaton.validate("aab");
+if (result.accepted) {
+    std::cout << "String accepted!" << std::endl;
+}
+
+// Generate accepted strings (NO GUI NEEDED!)
+auto strings = automaton.generateAcceptedStrings(5);
+for (const auto& s : strings) {
+    std::cout << s << std::endl;
+}
+
+// Classify automaton type (NO GUI NEEDED!)
+bool isDFA = automaton.isDeterministic();
+AutomatonClassification type = automaton.classify();
 ```
 
 ## Building the Project
