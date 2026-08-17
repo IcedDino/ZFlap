@@ -192,16 +192,20 @@ export default function EditorPage() {
 
   // Join the live channel for public docs — anyone with the link, no
   // account needed. Private docs never join, so they stay single-editor.
-  // reconnectNonce forces a clean rejoin (see visibility effect below).
-  const [reconnectNonce, setReconnectNonce] = useState(0)
+  // Reconnection on a dropped WebSocket (heartbeat timeout, backgrounded
+  // tab, network blip) is handled inside joinAutomatonChannel itself, by
+  // retrying on this same channel object — not by tearing this effect's
+  // channel down and recreating it, which is what caused the earlier
+  // duplicate/flickering presence bug.
   useEffect(() => {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
       clientId: clientIdRef.current,
-      initial: {
+      getPresence: () => ({
         color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
-        x: null, y: null, selectedId: automaton.selectedId,
-      },
+        x: lastCursorRef.current?.x ?? null, y: lastCursorRef.current?.y ?? null,
+        selectedId: automaton.selectedId,
+      }),
       onAction: automaton.applyRemote,
       onPresence: setPeers,
     })
@@ -211,26 +215,7 @@ export default function EditorPage() {
       channelRef.current = null
       setPeers([])
     }
-  }, [docId, isPublic, reconnectNonce]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // A backgrounded tab's WebSocket can get silently throttled/dropped by
-  // the browser — channelRef.current then still looks "present" but its
-  // underlying socket state is stale, so sends go nowhere. Catch that
-  // the moment the tab becomes active again rather than waiting for the
-  // person to notice their edit never synced.
-  useEffect(() => {
-    function checkStale() {
-      if (document.visibilityState !== 'visible') return
-      const ch = channelRef.current
-      if (ch && ch.state !== 'joined') setReconnectNonce(n => n + 1)
-    }
-    document.addEventListener('visibilitychange', checkStale)
-    window.addEventListener('focus', checkStale)
-    return () => {
-      document.removeEventListener('visibilitychange', checkStale)
-      window.removeEventListener('focus', checkStale)
-    }
-  }, [])
+  }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selection changed without necessarily moving the mouse (e.g. a click),
   // or identity changed (signed in mid-session) — push it to peers right

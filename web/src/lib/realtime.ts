@@ -55,13 +55,18 @@ export function createClientId(): string {
 }
 
 interface JoinOptions {
-  clientId:   string
-  initial:    PresenceState
-  onAction:   (action: RemoteAction) => void
-  onPresence: (peers: Peer[]) => void
+  clientId:    string
+  getPresence: () => PresenceState // called fresh on every (re)join, never a stale snapshot
+  onAction:    (action: RemoteAction) => void
+  onPresence:  (peers: Peer[]) => void
 }
 
-export function joinAutomatonChannel(id: string, { clientId, initial, onAction, onPresence }: JoinOptions): RealtimeChannel {
+// Channels we've intentionally told to leave — lets the retry logic below
+// tell "the connection dropped out from under us" apart from "we meant to
+// close this," without needing the caller to coordinate anything.
+const closingChannels = new WeakSet<RealtimeChannel>()
+
+export function joinAutomatonChannel(id: string, { clientId, getPresence, onAction, onPresence }: JoinOptions): RealtimeChannel {
   const channel = supabase.channel(`automaton:${id}`, {
     config: { broadcast: { self: false }, presence: { key: clientId } },
   })
@@ -83,9 +88,21 @@ export function joinAutomatonChannel(id: string, { clientId, initial, onAction, 
         .map(([key, entries]) => ({ id: key, ...entries[0] }))
       onPresence(peers)
     })
-    .subscribe(status => {
-      if (status === 'SUBSCRIBED') channel.track(initial)
+
+  // Retry on the SAME channel object (same topic, same presence key)
+  // instead of tearing down and recreating one — that's what caused
+  // duplicated/flickering presence entries earlier. Heartbeat timeouts
+  // and brief network blips are normal for a long-lived WebSocket;
+  // re-subscribing after CHANNEL_ERROR/TIMED_OUT/CLOSED is the
+  // documented way to recover without losing the channel's identity.
+  function subscribe() {
+    channel.subscribe(status => {
+      if (status === 'SUBSCRIBED') { channel.track(getPresence()); return }
+      const dropped = status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'
+      if (dropped && !closingChannels.has(channel)) setTimeout(subscribe, 1000)
     })
+  }
+  subscribe()
 
   return channel
 }
@@ -102,6 +119,7 @@ export function broadcastAction(channel: RealtimeChannel, clientId: string, acti
 // authoritative — broadcasts silently stop delivering. removeChannel()
 // tears down the registry entry immediately instead.
 export function leaveAutomatonChannel(channel: RealtimeChannel): void {
+  closingChannels.add(channel)
   supabase.removeChannel(channel)
 }
 
