@@ -81,6 +81,69 @@ function getTransId(target: EventTarget | null): string | null {
   return target.closest('[data-tid]')?.getAttribute('data-tid') ?? null
 }
 
+// ── Remote-position smoothing ────────────────────────────────────────────────
+// Shared by state moves and peer cursors: both arrive in discrete network-rate
+// steps from a remote collaborator. Rather than snapping to each one, chase
+// toward the latest authoritative position over a few frames and render THAT
+// — every dependent element that derives its coordinates from the same
+// source (ring, label, connected edges, cursor glyph, ...) stays in sync
+// automatically. `skip(id)` opts an item out entirely (state smoothing uses
+// this to exclude whichever state is under the local user's own drag, which
+// must stay exact/instant; cursor smoothing never skips — a peer's cursor is
+// never "mine").
+function useSmoothedPositions<T extends { id: string; x: number; y: number }>(
+  items: T[],
+  skip: (id: string) => boolean,
+): Record<string, { x: number; y: number }> {
+  const [smoothed, setSmoothed] = useState<Record<string, { x: number; y: number }>>({})
+  const prevRef   = useRef(items)
+  const targetRef = useRef(items)
+  targetRef.current = items
+  const rafRef = useRef<number | null>(null)
+
+  function step() {
+    setSmoothed(prev => {
+      const next: typeof prev = {}
+      let anyActive = false
+      for (const id of Object.keys(prev)) {
+        const target = targetRef.current.find(it => it.id === id)
+        if (!target || skip(id)) continue // gone, or now excluded — stop smoothing it
+        const cur = prev[id]
+        const dx = target.x - cur.x, dy = target.y - cur.y
+        if (Math.hypot(dx, dy) < 0.5) continue // converged — drop it, render reads the real value
+        next[id] = { x: cur.x + dx * 0.3, y: cur.y + dy * 0.3 }
+        anyActive = true
+      }
+      rafRef.current = anyActive ? requestAnimationFrame(step) : null
+      return next
+    })
+  }
+
+  useEffect(() => {
+    const prev = prevRef.current
+    let changed = false
+    const additions: Record<string, { x: number; y: number }> = {}
+    for (const it of items) {
+      const before = prev.find(p => p.id === it.id)
+      if (before && !skip(it.id) && (before.x !== it.x || before.y !== it.y)) {
+        additions[it.id] = smoothed[it.id] ?? { x: before.x, y: before.y }
+        changed = true
+      }
+    }
+    prevRef.current = items
+    if (changed) {
+      setSmoothed(prevSm => ({ ...prevSm, ...additions }))
+      if (rafRef.current == null) rafRef.current = requestAnimationFrame(step)
+    }
+  }, [items]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+  }, [])
+
+  return smoothed
+}
+
 interface TransPath { d: string; lx: number; ly: number }
 
 function computeTransPath(
@@ -198,67 +261,22 @@ export default function DiagramCanvas({
   const mmSvgRef  = useRef<SVGSVGElement>(null)
   const mmDragRef = useRef(false)
 
-  // ── Remote-move smoothing ─────────────────────────────────────────────────
-  // A state moved by a live collaborator arrives in discrete network-rate
-  // steps (~33/sec). Rather than snapping to each one, we chase toward the
-  // latest authoritative position over a few frames and render THAT instead
-  // of the raw value — every dependent element (ring, label, initial arrow,
-  // connected edges, minimap, hit-testing) automatically stays in sync
-  // because they all already derive from st.x/st.y in the JSX below. Local
-  // dragging is untouched — it never enters this map, stays exact/instant.
-  const [smoothed, setSmoothed] = useState<Record<string, { x: number; y: number }>>({})
-  const prevStatesRef = useRef(states)
-  const rawStatesRef  = useRef(states) // authoritative target for the chase loop below
-  rawStatesRef.current = states
-  const smoothRafRef  = useRef<number | null>(null)
-
+  // Remote state moves — excludes whichever state is under the local user's
+  // own drag (stays exact/instant, matches pre-collab feel exactly).
+  const smoothedStates = useSmoothedPositions(
+    states,
+    id => dragRef.current.mode === 'state' && dragRef.current.stateId === id,
+  )
   const renderStates = states.map(st => {
-    const sm = smoothed[st.id]
+    const sm = smoothedStates[st.id]
     return sm ? { ...st, x: sm.x, y: sm.y } : st
   })
 
-  function stepSmoothing() {
-    setSmoothed(prev => {
-      const next: typeof prev = {}
-      let anyActive = false
-      for (const id of Object.keys(prev)) {
-        const target = rawStatesRef.current.find(s => s.id === id)
-        const isMine = dragRef.current.mode === 'state' && dragRef.current.stateId === id
-        if (!target || isMine) continue // gone, or now under local drag — stop smoothing it
-        const cur = prev[id]
-        const dx = target.x - cur.x, dy = target.y - cur.y
-        if (Math.hypot(dx, dy) < 0.5) continue // converged — drop it, render reads the real value
-        next[id] = { x: cur.x + dx * 0.3, y: cur.y + dy * 0.3 }
-        anyActive = true
-      }
-      smoothRafRef.current = anyActive ? requestAnimationFrame(stepSmoothing) : null
-      return next
-    })
-  }
-
-  // Detect remote-driven position changes and (re)seed smoothing for them
-  useEffect(() => {
-    const prev = prevStatesRef.current
-    let changed = false
-    const additions: Record<string, { x: number; y: number }> = {}
-    for (const st of states) {
-      const before = prev.find(p => p.id === st.id)
-      const isMine = dragRef.current.mode === 'state' && dragRef.current.stateId === st.id
-      if (before && !isMine && (before.x !== st.x || before.y !== st.y)) {
-        additions[st.id] = smoothed[st.id] ?? { x: before.x, y: before.y }
-        changed = true
-      }
-    }
-    prevStatesRef.current = states
-    if (changed) {
-      setSmoothed(prevSm => ({ ...prevSm, ...additions }))
-      if (smoothRafRef.current == null) smoothRafRef.current = requestAnimationFrame(stepSmoothing)
-    }
-  }, [states]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => () => {
-    if (smoothRafRef.current != null) cancelAnimationFrame(smoothRafRef.current)
-  }, [])
+  // Remote peer cursors — never "mine," nothing to exclude.
+  const cursorItems = (peers ?? [])
+    .filter((p): p is typeof p & { x: number; y: number } => p.x !== null && p.y !== null)
+    .map(p => ({ id: p.id, x: p.x, y: p.y }))
+  const smoothedCursors = useSmoothedPositions(cursorItems, () => false)
 
   // Mirrors of props as refs so native handlers always read current values
   // without needing to be in the effect dependency array
@@ -827,16 +845,21 @@ export default function DiagramCanvas({
           })}
 
           {/* ── Live collaborators' cursors ── */}
-          {peers?.filter(p => p.x !== null && p.y !== null).map(p => (
-            <g key={p.id} pointerEvents="none">
-              <path
-                d={`M${p.x},${p.y} L${p.x! + 3},${p.y! + 14} L${p.x! + 6.5},${p.y! + 9.5} L${p.x! + 12},${p.y! + 10.5} Z`}
-                fill={p.color}
-                stroke="#FFFFFF"
-                strokeWidth={1.2}
-              />
-            </g>
-          ))}
+          {cursorItems.map(c => {
+            const sm = smoothedCursors[c.id]
+            const x = sm ? sm.x : c.x, y = sm ? sm.y : c.y
+            const color = peers?.find(p => p.id === c.id)?.color ?? '#6B6459'
+            return (
+              <g key={c.id} pointerEvents="none">
+                <path
+                  d={`M${x},${y} L${x + 3},${y + 14} L${x + 6.5},${y + 9.5} L${x + 12},${y + 10.5} Z`}
+                  fill={color}
+                  stroke="#FFFFFF"
+                  strokeWidth={1.2}
+                />
+              </g>
+            )
+          })}
 
         </g>
       </svg>
