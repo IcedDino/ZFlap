@@ -82,7 +82,7 @@ export default function EditorPage() {
         const now = performance.now()
         const elapsed = now - lastMoveSentRef.current
         pendingMoveRef.current = action
-        if (elapsed >= 30) {
+        if (elapsed >= 16) {
           lastMoveSentRef.current = now
           broadcastAction(channel, clientIdRef.current, action)
           pendingMoveRef.current = null
@@ -94,7 +94,7 @@ export default function EditorPage() {
               broadcastAction(channelRef.current, clientIdRef.current, pendingMoveRef.current)
               pendingMoveRef.current = null
             }
-          }, 30 - elapsed)
+          }, 16 - elapsed)
         }
       } else {
         broadcastAction(channel, clientIdRef.current, action)
