@@ -77,6 +77,17 @@ export function broadcastAction(channel: RealtimeChannel, action: RemoteAction):
   channel.send({ type: 'broadcast', event: 'action', payload: action })
 }
 
+// Not channel.unsubscribe() — that just async-leaves the topic without
+// synchronously removing the channel from the client's registry. Under
+// StrictMode's dev-mode double-effect-invoke (mount → cleanup → mount),
+// a second channel for the same topic can get created before the first
+// one's leave finishes, and the client gets confused about which one is
+// authoritative — broadcasts silently stop delivering. removeChannel()
+// tears down the registry entry immediately instead.
+export function leaveAutomatonChannel(channel: RealtimeChannel): void {
+  supabase.removeChannel(channel)
+}
+
 export function trackPresence(channel: RealtimeChannel, state: PresenceState): void {
   channel.track(state)
 }

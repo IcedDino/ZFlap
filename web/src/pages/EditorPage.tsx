@@ -15,7 +15,7 @@ import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
-import { joinAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity } from '../lib/realtime'
+import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity } from '../lib/realtime'
 import type { Peer } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
@@ -161,7 +161,7 @@ export default function EditorPage() {
     })
     channelRef.current = channel
     return () => {
-      channel.unsubscribe()
+      leaveAutomatonChannel(channel)
       channelRef.current = null
       setPeers([])
     }
