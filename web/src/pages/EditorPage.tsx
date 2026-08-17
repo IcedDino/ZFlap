@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Download, Save, Pencil, Play, Share2, User } from 'lucide-react'
+import { Download, Save, Check, Pencil, Play, Share2, User } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
 import DiagramCanvas from '../components/editor/DiagramCanvas'
@@ -9,10 +9,13 @@ import FloatingToolbar from '../components/editor/FloatingToolbar'
 import type { Tool } from '../components/editor/FloatingToolbar'
 import SimPanel from '../components/editor/SimPanel'
 import AuthModal from '../components/AuthModal'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAutomaton, classifyAutomaton } from '../hooks/useAutomaton'
+import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
+import { joinAutomatonChannel, broadcastAction } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
@@ -33,9 +36,37 @@ export default function EditorPage() {
   const [saving, setSaving]     = useState(false)
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
+  const [peers, setPeers]       = useState(0)
 
-  const automaton      = useAutomaton({ persistLocal: !id })
+  const channelRef    = useRef<RealtimeChannel | null>(null)
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // handleSave is declared further down (it needs `automaton`, which needs
+  // this callback first) — kept current via ref so handleLocalAction can
+  // call it without a circular declaration order.
+  const handleSaveRef = useRef<() => void>(() => {})
+
+  // Live collaboration: broadcast our own edits to anyone else on this
+  // automaton, and debounce-persist them — but only for public docs
+  // (private ones keep the explicit-Save-only flow). Not memoized: it
+  // closes over the latest isPublic/docId each render, and useAutomaton
+  // mirrors whatever onAction it's given into a ref internally, so a
+  // fresh closure per render is exactly what it expects, not a bug.
+  function handleLocalAction(action: RemoteAction) {
+    if (channelRef.current) broadcastAction(channelRef.current, action)
+    if (isPublic && docId) {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+      autoSaveTimer.current = setTimeout(() => { handleSaveRef.current() }, 1500)
+    }
+  }
+
+  const automaton      = useAutomaton({ persistLocal: !id, onAction: handleLocalAction })
   const editorViewRef  = useRef<View>({ panX: 0, panY: 0, zoom: 1 })
+
+  const currentSnapshot = JSON.stringify({
+    name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId,
+  })
+  const isSaved = savedSnapshot !== null && savedSnapshot === currentSnapshot
 
   // Load the cloud document named by the URL (skip if we already have it, e.g. right after Save)
   useEffect(() => {
@@ -49,13 +80,19 @@ export default function EditorPage() {
         setName(row.name)
         setIsPublic(row.is_public)
         setDocId(row.id)
+        setSavedSnapshot(JSON.stringify({
+          name: row.name, states: row.data.states, transitions: row.data.transitions, initialId: row.data.initialId,
+        }))
         setLoaded(true)
       })
       .catch(() => { setLoadError('Failed to load this automaton.'); setLoaded(true) })
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = useCallback(async () => {
-    if (!user) { setAuthOpen(true); return }
+    // Creating a new automaton needs an account; updating an existing
+    // public one doesn't — RLS allows anyone to write while it's public,
+    // which is what makes anonymous live collaborators able to save at all.
+    if (!docId && !user) { setAuthOpen(true); return }
     setSaving(true)
     try {
       const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
@@ -66,12 +103,14 @@ export default function EditorPage() {
         setDocId(row.id)
         navigate(`/editor/${row.id}`, { replace: true })
       }
+      setSavedSnapshot(JSON.stringify({ name, ...payload }))
     } catch (err) {
       console.error(err)
     } finally {
       setSaving(false)
     }
   }, [user, docId, name, automaton.states, automaton.transitions, automaton.initialId, navigate])
+  handleSaveRef.current = handleSave
 
   const handleShare = useCallback(async () => {
     if (!docId) return
@@ -84,6 +123,26 @@ export default function EditorPage() {
       console.error(err)
     }
   }, [docId, isPublic])
+
+  // Join the live channel for public docs — anyone with the link, no
+  // account needed. Private docs never join, so they stay single-editor.
+  useEffect(() => {
+    if (!docId || !isPublic) return
+    const channel = joinAutomatonChannel(docId, {
+      onAction: automaton.applyRemote,
+      onPresence: setPeers,
+    })
+    channelRef.current = channel
+    return () => {
+      channel.unsubscribe()
+      channelRef.current = null
+      setPeers(0)
+    }
+  }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+  }, [])
 
   const simulator = useSimulator(
     automaton.states,
@@ -181,8 +240,18 @@ export default function EditorPage() {
 
         <div className={s.topbarSpacer} />
 
-        <button className={s.topbarBtn} onClick={handleSave} disabled={saving}>
-          <Save size={14} /> {saving ? 'Saving…' : 'Save'}
+        {isPublic && docId && (
+          <span className={s.peersBadge} title="People live on this automaton right now">
+            <span className={s.peersDot} /> {peers} here
+          </span>
+        )}
+
+        <button
+          className={isSaved ? s.topbarBtnSaved : s.topbarBtn}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? <>Saving…</> : isSaved ? <><Check size={14} /> Saved</> : <><Save size={14} /> Save</>}
         </button>
         <button className={s.topbarBtn} onClick={handleShare} disabled={!docId}>
           <Share2 size={14} /> {copied ? 'Copied!' : 'Share'}

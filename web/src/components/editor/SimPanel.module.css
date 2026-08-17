@@ -562,23 +562,3 @@
 }
 .btnStep:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text); border-color: var(--border-light); }
 .btnStep:disabled { opacity: 0.3; }
-
-/* ── Keyboard hint ───────────────────────────────────────────────────────────── */
-
-.hint {
-  margin-top: 8px;
-  font-size: 10px;
-  color: var(--text-dim);
-  line-height: 1.6;
-}
-
-.hint kbd {
-  display: inline-block;
-  padding: 1px 4px;
-  border-radius: 3px;
-  border: 1px solid var(--border);
-  background: var(--bg-sunken);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  color: var(--text-muted);
-}

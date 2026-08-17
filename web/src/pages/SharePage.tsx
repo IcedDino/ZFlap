@@ -95,7 +95,7 @@ export default function SharePage() {
         <span className={s.name}>{row?.name}</span>
         <span className={s.badge}><Eye size={11} /> View only</span>
         <div className={es.topbarSpacer} />
-        <Link to="/editor" className={es.topbarBtnPrimary}>Open in ZFlap</Link>
+        <Link to={`/editor/${id}`} className={es.topbarBtnPrimary}>Open in ZFlap</Link>
       </header>
 
       <SimPanel

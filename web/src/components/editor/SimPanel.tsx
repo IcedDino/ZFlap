@@ -292,10 +292,6 @@ export default function SimPanel({
             <RotateCcw size={13} />
           </button>
         </div>
-
-        <div className={s.hint}>
-          <kbd>←</kbd><kbd>→</kbd> step · <kbd>Space</kbd> play · <kbd>Esc</kbd> reset
-        </div>
       </div>
 
     </aside>

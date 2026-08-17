@@ -159,6 +159,41 @@
   background: transparent;
 }
 
+.topbarBtnSaved {
+  composes: topbarBtn;
+  color: var(--green);
+  border-color: rgba(34, 197, 94, 0.28);
+  background: var(--green-bg);
+}
+.topbarBtnSaved:hover {
+  color: var(--green);
+  border-color: rgba(34, 197, 94, 0.28);
+  background: var(--green-bg);
+}
+
+.peersBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+  background: var(--green-bg);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 99px;
+  padding: 5px 10px;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.peersDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
 .topbarBtnPrimary {
   composes: topbarBtn;
   background: var(--orange);

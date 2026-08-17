@@ -40,6 +40,14 @@ type Action =
   | { type: 'DELETE_SELECTED' }
   | { type: 'LOAD'; states: FAState[]; transitions: FATransition[]; initialId: string | null }
 
+// Broadcastable over the network to other live collaborators — excludes
+// SELECT (per-user local UI state), LOAD (initial fetch only, would
+// clobber other clients' in-progress state), and DELETE_SELECTED (means
+// "delete whatever *my* selectedId is" — meaningless to a peer whose
+// selection isn't synced; deleteSelected() below resolves it to a
+// concrete DELETE_STATE/DELETE_TRANSITION before broadcasting instead).
+export type RemoteAction = Exclude<Action, { type: 'SELECT' } | { type: 'LOAD' } | { type: 'DELETE_SELECTED' }>
+
 // ── Reducer ───────────────────────────────────────────────────────────────────
 
 function reducer(data: AutomatonData, action: Action): AutomatonData {
@@ -156,23 +164,34 @@ function saveToStorage(data: AutomatonData) {
   } catch { /* quota exceeded or private mode */ }
 }
 
-function nextId(ids: string[], prefix: string): number {
-  const nums = ids.map(id => parseInt(id.slice(prefix.length))).filter(n => !isNaN(n))
+// Numbers only the display label ("q0", "q1", ...) — ids are random
+// UUIDs (see addState/addTransition below) so concurrent collaborators
+// can never collide on one, unlike a locally-computed sequential id.
+function nextLabelNum(labels: string[]): number {
+  const nums = labels
+    .filter(l => l.startsWith('q'))
+    .map(l => parseInt(l.slice(1)))
+    .filter(n => !isNaN(n))
   return nums.length === 0 ? 0 : Math.max(...nums) + 1
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useAutomaton(opts?: { persistLocal?: boolean }) {
+export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action: RemoteAction) => void }) {
   const persistLocal = opts?.persistLocal ?? true
+
+  // Mirrored to a ref (same pattern DiagramCanvas uses for its callback
+  // props) so the dispatch wrappers below can keep stable `[]` deps
+  // while still calling whatever onAction the caller passed most recently.
+  const onActionRef = useRef(opts?.onAction)
+  onActionRef.current = opts?.onAction
 
   const [data, dispatch] = useReducer(reducer, null, () => {
     const saved = loadFromStorage()
     return { ...saved, selectedId: null }
   })
 
-  const sidRef = useRef(nextId(data.states.map(s => s.id), 's'))
-  const tidRef = useRef(nextId(data.transitions.map(t => t.id), 't'))
+  const labelNumRef = useRef(nextLabelNum(data.states.map(s => s.label)))
 
   // Debounced save — 300ms so rapid drag moves don't thrash localStorage
   useEffect(() => {
@@ -182,37 +201,52 @@ export function useAutomaton(opts?: { persistLocal?: boolean }) {
   }, [data, persistLocal])
 
   const addState = useCallback((x: number, y: number) => {
-    const n = sidRef.current++
-    dispatch({ type: 'ADD_STATE', id: `s${n}`, label: `q${n}`, x, y })
+    const n = labelNumRef.current++
+    const action: RemoteAction = { type: 'ADD_STATE', id: crypto.randomUUID(), label: `q${n}`, x, y }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const moveState = useCallback((id: string, x: number, y: number) => {
-    dispatch({ type: 'MOVE_STATE', id, x, y })
+    const action: RemoteAction = { type: 'MOVE_STATE', id, x, y }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const deleteState = useCallback((id: string) => {
-    dispatch({ type: 'DELETE_STATE', id })
+    const action: RemoteAction = { type: 'DELETE_STATE', id }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const toggleFinal = useCallback((id: string) => {
-    dispatch({ type: 'TOGGLE_FINAL', id })
+    const action: RemoteAction = { type: 'TOGGLE_FINAL', id }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const renameState = useCallback((id: string, label: string) => {
-    dispatch({ type: 'RENAME_STATE', id, label })
+    const action: RemoteAction = { type: 'RENAME_STATE', id, label }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const setInitial = useCallback((id: string | null) => {
-    dispatch({ type: 'SET_INITIAL', id })
+    const action: RemoteAction = { type: 'SET_INITIAL', id }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const addTransition = useCallback((fromId: string, toId: string, label: string) => {
-    const n = tidRef.current++
-    dispatch({ type: 'ADD_TRANSITION', id: `t${n}`, fromId, toId, label })
+    const action: RemoteAction = { type: 'ADD_TRANSITION', id: crypto.randomUUID(), fromId, toId, label }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const deleteTransition = useCallback((id: string) => {
-    dispatch({ type: 'DELETE_TRANSITION', id })
+    const action: RemoteAction = { type: 'DELETE_TRANSITION', id }
+    dispatch(action)
+    onActionRef.current?.(action)
   }, [])
 
   const select = useCallback((id: string | null) => {
@@ -220,13 +254,26 @@ export function useAutomaton(opts?: { persistLocal?: boolean }) {
   }, [])
 
   const deleteSelected = useCallback(() => {
+    const id = data.selectedId
     dispatch({ type: 'DELETE_SELECTED' })
-  }, [])
+    if (!id) return
+    if (data.states.some(s => s.id === id)) {
+      onActionRef.current?.({ type: 'DELETE_STATE', id })
+    } else if (data.transitions.some(t => t.id === id)) {
+      onActionRef.current?.({ type: 'DELETE_TRANSITION', id })
+    }
+  }, [data])
 
   const load = useCallback((loaded: Pick<AutomatonData, 'states' | 'transitions' | 'initialId'>) => {
     dispatch({ type: 'LOAD', ...loaded })
-    sidRef.current = nextId(loaded.states.map(s => s.id), 's')
-    tidRef.current = nextId(loaded.transitions.map(t => t.id), 't')
+    labelNumRef.current = nextLabelNum(loaded.states.map(s => s.label))
+  }, [])
+
+  // Replays an action received from another live collaborator — bypasses
+  // the wrappers above (and their onAction mirroring) since the action
+  // already carries its final id; re-broadcasting it would echo forever.
+  const applyRemote = useCallback((action: RemoteAction) => {
+    dispatch(action)
   }, [])
 
   return {
@@ -242,6 +289,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean }) {
     select,
     deleteSelected,
     load,
+    applyRemote,
   }
 }
 
