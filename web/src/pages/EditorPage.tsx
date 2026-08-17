@@ -15,8 +15,8 @@ import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
-import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
-import type { Peer } from '../lib/realtime'
+import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
+import type { Peer, CursorState } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
@@ -38,7 +38,8 @@ export default function EditorPage() {
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
-  const [peers, setPeers]       = useState<Peer[]>([])
+  const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string }[]>([])
+  const [cursors, setCursors]   = useState<Record<string, CursorState>>({})
 
   const channelRef      = useRef<RealtimeChannel | null>(null)
   const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -113,16 +114,15 @@ export default function EditorPage() {
     }
   }
 
-  // Cursor position + current selection, shared the same way — Presence,
-  // not Broadcast, since it's "my current live state" rather than a
-  // one-off event. Same non-memoized-closure reasoning as above.
+  // Cursor position + current selection — Broadcast, not Presence (see the
+  // note on PresenceState in realtime.ts for why). DiagramCanvas already
+  // throttles calls here to ~80ms, matched to what a smooth cursor needs;
+  // no extra throttling on top. Same non-memoized-closure reasoning as
+  // handleLocalAction above.
   function handleCursorMove(x: number, y: number) {
     lastCursorRef.current = { x, y }
     if (channelRef.current) {
-      trackPresence(channelRef.current, {
-        color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
-        x, y, selectedId: automaton.selectedId,
-      })
+      broadcastCursor(channelRef.current, clientIdRef.current, { x, y, selectedId: automaton.selectedId })
     }
   }
 
@@ -201,34 +201,50 @@ export default function EditorPage() {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
       clientId: clientIdRef.current,
-      getPresence: () => ({
-        color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
-        x: lastCursorRef.current?.x ?? null, y: lastCursorRef.current?.y ?? null,
-        selectedId: automaton.selectedId,
-      }),
+      getPresence: () => ({ color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name }),
       onAction: automaton.applyRemote,
-      onPresence: setPeers,
+      onPresence: newPeers => {
+        setPeers(newPeers)
+        // Drop cursor/selection data for anyone who's no longer connected
+        // so a disconnected peer's cursor doesn't linger as a ghost.
+        const stillHere = new Set(newPeers.map(p => p.id))
+        setCursors(prev => {
+          const next: Record<string, CursorState> = {}
+          for (const key of Object.keys(prev)) if (stillHere.has(key)) next[key] = prev[key]
+          return next
+        })
+      },
+      onCursor: (senderId, cursor) => {
+        setCursors(prev => ({ ...prev, [senderId]: cursor }))
+      },
     })
     channelRef.current = channel
     return () => {
       leaveAutomatonChannel(channel)
       channelRef.current = null
       setPeers([])
+      setCursors({})
     }
   }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Selection changed without necessarily moving the mouse (e.g. a click),
-  // or identity changed (signed in mid-session) — push it to peers right
-  // away rather than waiting for the next cursor move.
+  // Selection changed without necessarily moving the mouse (e.g. a click)
+  // — push it to peers right away rather than waiting for the next
+  // cursor move, over the same broadcast channel cursor position uses.
   useEffect(() => {
     if (!channelRef.current) return
-    trackPresence(channelRef.current, {
-      color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
+    broadcastCursor(channelRef.current, clientIdRef.current, {
       x: lastCursorRef.current?.x ?? null,
       y: lastCursorRef.current?.y ?? null,
       selectedId: automaton.selectedId,
     })
-  }, [automaton.selectedId, myIdentity.initial, myIdentity.name])
+  }, [automaton.selectedId])
+
+  // Identity changed (signed in mid-session) — this one genuinely belongs
+  // on Presence, and is rare enough that it's not a rate concern.
+  useEffect(() => {
+    if (!channelRef.current) return
+    trackIdentity(channelRef.current, { color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name })
+  }, [myIdentity.initial, myIdentity.name])
 
   useEffect(() => () => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
@@ -262,6 +278,13 @@ export default function EditorPage() {
     typeColor === 'orange' ? s.statusChipOrange :
                              s.statusChip
 
+  // Identity (Presence) merged with cursor/selection (Broadcast) for
+  // DiagramCanvas — see realtime.ts for why those two live separately.
+  const mergedPeers: Peer[] = peers.map(p => ({
+    ...p,
+    ...(cursors[p.id] ?? { x: null, y: null, selectedId: null }),
+  }))
+
   if (loadError) {
     return (
       <div className={s.root}>
@@ -293,7 +316,7 @@ export default function EditorPage() {
         activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
         readOnly={mode === 'simulate'}
         hideMinimap={mode === 'simulate'}
-        peers={peers}
+        peers={mergedPeers}
         onCursorMove={handleCursorMove}
         onAddState={automaton.addState}
         onMoveState={automaton.moveState}

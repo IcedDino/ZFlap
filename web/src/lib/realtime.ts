@@ -28,20 +28,29 @@ export function randomAnonIdentity(): { initial: string; name: string } {
   return { initial: animal.emoji, name: `Anonymous ${animal.name}` }
 }
 
-// Presence payload — "here's my current live state," visible to every
-// other connected client and cleaned up automatically on disconnect.
-// `initial` is what renders inside the avatar circle/cursor tag: a
-// signed-in user's first letter, or an anonymous animal's emoji.
+// Presence is for "who's here" + static identity, tracked once per join
+// and only re-tracked when identity actually changes (e.g. signing in
+// mid-session) — Presence is a membership/low-rate primitive, not built
+// for continuous updates. Cursor position and selection change far too
+// often (every mousemove) for that, so they travel as a separate
+// high-frequency broadcast event instead (see CursorState/broadcastCursor
+// below) — mixing the two onto Presence destabilized it specifically
+// while someone was actively dragging (far more Presence pushes),
+// visible as that person's own avatar flickering out of everyone else's
+// list mid-edit, and eventually broke the whole channel from the churn.
 export interface PresenceState {
-  color:      string
-  initial:    string
-  name:       string
+  color:   string
+  initial: string
+  name:    string
+}
+
+export interface CursorState {
   x:          number | null
   y:          number | null
   selectedId: string | null
 }
 
-export interface Peer extends PresenceState {
+export interface Peer extends PresenceState, CursorState {
   id: string
 }
 
@@ -58,7 +67,8 @@ interface JoinOptions {
   clientId:    string
   getPresence: () => PresenceState // called fresh on every (re)join, never a stale snapshot
   onAction:    (action: RemoteAction) => void
-  onPresence:  (peers: Peer[]) => void
+  onPresence:  (peers: { id: string; color: string; initial: string; name: string }[]) => void
+  onCursor:    (senderId: string, cursor: CursorState) => void
 }
 
 // Channels we've intentionally told to leave — lets the retry logic below
@@ -66,7 +76,7 @@ interface JoinOptions {
 // close this," without needing the caller to coordinate anything.
 const closingChannels = new WeakSet<RealtimeChannel>()
 
-export function joinAutomatonChannel(id: string, { clientId, getPresence, onAction, onPresence }: JoinOptions): RealtimeChannel {
+export function joinAutomatonChannel(id: string, { clientId, getPresence, onAction, onPresence, onCursor }: JoinOptions): RealtimeChannel {
   const channel = supabase.channel(`automaton:${id}`, {
     config: { broadcast: { self: false }, presence: { key: clientId } },
   })
@@ -80,6 +90,10 @@ export function joinAutomatonChannel(id: string, { clientId, getPresence, onActi
       // reapplied over a newer local edit and cause it to jump back.
       if (payload.senderId === clientId) return
       onAction(payload.action as RemoteAction)
+    })
+    .on('broadcast', { event: 'cursor' }, ({ payload }) => {
+      if (payload.senderId === clientId) return
+      onCursor(payload.senderId, payload.cursor as CursorState)
     })
     .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<PresenceState>()
@@ -111,6 +125,16 @@ export function broadcastAction(channel: RealtimeChannel, clientId: string, acti
   channel.send({ type: 'broadcast', event: 'action', payload: { senderId: clientId, action } })
 }
 
+export function broadcastCursor(channel: RealtimeChannel, clientId: string, cursor: CursorState): void {
+  channel.send({ type: 'broadcast', event: 'cursor', payload: { senderId: clientId, cursor } })
+}
+
+// Re-track identity — rare (only fires if someone signs in mid-session),
+// unlike cursor position this genuinely belongs on Presence.
+export function trackIdentity(channel: RealtimeChannel, state: PresenceState): void {
+  channel.track(state)
+}
+
 // Not channel.unsubscribe() — that just async-leaves the topic without
 // synchronously removing the channel from the client's registry. Under
 // StrictMode's dev-mode double-effect-invoke (mount → cleanup → mount),
@@ -121,8 +145,4 @@ export function broadcastAction(channel: RealtimeChannel, clientId: string, acti
 export function leaveAutomatonChannel(channel: RealtimeChannel): void {
   closingChannels.add(channel)
   supabase.removeChannel(channel)
-}
-
-export function trackPresence(channel: RealtimeChannel, state: PresenceState): void {
-  channel.track(state)
 }
