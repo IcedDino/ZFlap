@@ -387,7 +387,7 @@ export default function DiagramCanvas({
 
       if (cbCursorMove.current) {
         const now = performance.now()
-        if (now - lastCursorSentRef.current > 80) {
+        if (now - lastCursorSentRef.current > 40) {
           lastCursorSentRef.current = now
           const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
           cbCursorMove.current(w.x, w.y)
