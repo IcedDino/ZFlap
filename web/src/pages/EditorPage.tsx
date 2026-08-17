@@ -98,10 +98,14 @@ export default function EditorPage() {
       } else {
         broadcastAction(channel, clientIdRef.current, action)
       }
-      // Stale connection (e.g. this tab was backgrounded a while) —
-      // kick off a rejoin so the *next* edit actually goes out, even
-      // though this particular one may still be lost.
-      if (channel.state !== 'joined') setReconnectNonce(n => n + 1)
+      // Reconnect-on-stale-state lives only in the visibility/focus
+      // effect below now — checking channel.state here, on every single
+      // send, turned out to misfire constantly (likely a timing gap
+      // between the SUBSCRIBED callback and channel.state actually
+      // reading 'joined'), tearing the channel down and rebuilding it
+      // on nearly every edit. That's what was causing editors to
+      // flicker in and out of the presence list, sometimes duplicated —
+      // each rejoin is a fresh leave+join for the same person.
     }
     if (isPublic && docId) {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
