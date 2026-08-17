@@ -63,7 +63,13 @@ export default function EditorPage() {
   // mirrors whatever onAction it's given into a ref internally, so a
   // fresh closure per render is exactly what it expects, not a bug.
   function handleLocalAction(action: RemoteAction) {
-    if (channelRef.current) broadcastAction(channelRef.current, action)
+    if (channelRef.current) {
+      broadcastAction(channelRef.current, action)
+      // Stale connection (e.g. this tab was backgrounded a while) —
+      // kick off a rejoin so the *next* edit actually goes out, even
+      // though this particular one may still be lost.
+      if (channelRef.current.state !== 'joined') setReconnectNonce(n => n + 1)
+    }
     if (isPublic && docId) {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
       autoSaveTimer.current = setTimeout(() => { handleSaveRef.current() }, 1500)
@@ -149,6 +155,8 @@ export default function EditorPage() {
 
   // Join the live channel for public docs — anyone with the link, no
   // account needed. Private docs never join, so they stay single-editor.
+  // reconnectNonce forces a clean rejoin (see visibility effect below).
+  const [reconnectNonce, setReconnectNonce] = useState(0)
   useEffect(() => {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
@@ -165,7 +173,26 @@ export default function EditorPage() {
       channelRef.current = null
       setPeers([])
     }
-  }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [docId, isPublic, reconnectNonce]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A backgrounded tab's WebSocket can get silently throttled/dropped by
+  // the browser — channelRef.current then still looks "present" but its
+  // underlying socket state is stale, so sends go nowhere. Catch that
+  // the moment the tab becomes active again rather than waiting for the
+  // person to notice their edit never synced.
+  useEffect(() => {
+    function checkStale() {
+      if (document.visibilityState !== 'visible') return
+      const ch = channelRef.current
+      if (ch && ch.state !== 'joined') setReconnectNonce(n => n + 1)
+    }
+    document.addEventListener('visibilitychange', checkStale)
+    window.addEventListener('focus', checkStale)
+    return () => {
+      document.removeEventListener('visibilitychange', checkStale)
+      window.removeEventListener('focus', checkStale)
+    }
+  }, [])
 
   // Selection changed without necessarily moving the mouse (e.g. a click),
   // or identity changed (signed in mid-session) — push it to peers right
