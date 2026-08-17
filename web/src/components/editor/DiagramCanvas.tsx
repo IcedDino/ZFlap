@@ -198,9 +198,71 @@ export default function DiagramCanvas({
   const mmSvgRef  = useRef<SVGSVGElement>(null)
   const mmDragRef = useRef(false)
 
+  // ── Remote-move smoothing ─────────────────────────────────────────────────
+  // A state moved by a live collaborator arrives in discrete network-rate
+  // steps (~33/sec). Rather than snapping to each one, we chase toward the
+  // latest authoritative position over a few frames and render THAT instead
+  // of the raw value — every dependent element (ring, label, initial arrow,
+  // connected edges, minimap, hit-testing) automatically stays in sync
+  // because they all already derive from st.x/st.y in the JSX below. Local
+  // dragging is untouched — it never enters this map, stays exact/instant.
+  const [smoothed, setSmoothed] = useState<Record<string, { x: number; y: number }>>({})
+  const prevStatesRef = useRef(states)
+  const rawStatesRef  = useRef(states) // authoritative target for the chase loop below
+  rawStatesRef.current = states
+  const smoothRafRef  = useRef<number | null>(null)
+
+  const renderStates = states.map(st => {
+    const sm = smoothed[st.id]
+    return sm ? { ...st, x: sm.x, y: sm.y } : st
+  })
+
+  function stepSmoothing() {
+    setSmoothed(prev => {
+      const next: typeof prev = {}
+      let anyActive = false
+      for (const id of Object.keys(prev)) {
+        const target = rawStatesRef.current.find(s => s.id === id)
+        const isMine = dragRef.current.mode === 'state' && dragRef.current.stateId === id
+        if (!target || isMine) continue // gone, or now under local drag — stop smoothing it
+        const cur = prev[id]
+        const dx = target.x - cur.x, dy = target.y - cur.y
+        if (Math.hypot(dx, dy) < 0.5) continue // converged — drop it, render reads the real value
+        next[id] = { x: cur.x + dx * 0.3, y: cur.y + dy * 0.3 }
+        anyActive = true
+      }
+      smoothRafRef.current = anyActive ? requestAnimationFrame(stepSmoothing) : null
+      return next
+    })
+  }
+
+  // Detect remote-driven position changes and (re)seed smoothing for them
+  useEffect(() => {
+    const prev = prevStatesRef.current
+    let changed = false
+    const additions: Record<string, { x: number; y: number }> = {}
+    for (const st of states) {
+      const before = prev.find(p => p.id === st.id)
+      const isMine = dragRef.current.mode === 'state' && dragRef.current.stateId === st.id
+      if (before && !isMine && (before.x !== st.x || before.y !== st.y)) {
+        additions[st.id] = smoothed[st.id] ?? { x: before.x, y: before.y }
+        changed = true
+      }
+    }
+    prevStatesRef.current = states
+    if (changed) {
+      setSmoothed(prevSm => ({ ...prevSm, ...additions }))
+      if (smoothRafRef.current == null) smoothRafRef.current = requestAnimationFrame(stepSmoothing)
+    }
+  }, [states]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    if (smoothRafRef.current != null) cancelAnimationFrame(smoothRafRef.current)
+  }, [])
+
   // Mirrors of props as refs so native handlers always read current values
   // without needing to be in the effect dependency array
-  const statesRef     = useRef(states)
+  const statesRef     = useRef(renderStates)
   const transRef      = useRef(transitions)
   const selectedRef   = useRef(selectedId)
   const toolRef       = useRef(tool)
@@ -217,7 +279,7 @@ export default function DiagramCanvas({
   const readOnlyRef     = useRef(readOnly ?? false)
   const activeIdsRef    = useRef(activeStateIds)
 
-  statesRef.current     = states
+  statesRef.current     = renderStates
   transRef.current      = transitions
   selectedRef.current   = selectedId
   toolRef.current       = tool
@@ -553,9 +615,9 @@ export default function DiagramCanvas({
 
   const previewPath = (() => {
     if (!transDrag) return null
-    const from = states.find(s => s.id === transDrag.fromId)
+    const from = renderStates.find(s => s.id === transDrag.fromId)
     if (!from) return null
-    const snap = transDrag.snapId ? states.find(s => s.id === transDrag.snapId) : null
+    const snap = transDrag.snapId ? renderStates.find(s => s.id === transDrag.snapId) : null
 
     if (snap && snap.id === from.id) {
       // Self-loop preview
@@ -601,8 +663,8 @@ export default function DiagramCanvas({
 
           {/* ── Transitions ── */}
           {transitions.map(t => {
-            const from = states.find(s => s.id === t.fromId)
-            const to   = states.find(s => s.id === t.toId)
+            const from = renderStates.find(s => s.id === t.fromId)
+            const to   = renderStates.find(s => s.id === t.toId)
             if (!from || !to) return null
 
             const isSel    = t.id === selectedId
@@ -665,7 +727,7 @@ export default function DiagramCanvas({
           )}
 
           {/* ── States ── */}
-          {states.map(st => {
+          {renderStates.map(st => {
             const isSel      = st.id === selectedId
             const isInit     = st.id === initialId
             const isHov      = st.id === hoveredId
@@ -781,7 +843,7 @@ export default function DiagramCanvas({
 
       {/* ── Minimap ── */}
       {!hideMinimap && (() => {
-        const b = getMMBounds(states)
+        const b = getMMBounds(renderStates)
         if (!b) return null
         const { bx, by, scl, ox, oy } = b
         const toMX = (wx: number) => (wx - bx) * scl + ox
@@ -801,8 +863,8 @@ export default function DiagramCanvas({
             >
               {/* Transitions */}
               {transitions.map(t => {
-                const f = states.find(st => st.id === t.fromId)
-                const o = states.find(st => st.id === t.toId)
+                const f = renderStates.find(st => st.id === t.fromId)
+                const o = renderStates.find(st => st.id === t.toId)
                 if (!f || !o) return null
                 if (f.id === o.id) return null
                 return <line key={t.id}
@@ -812,7 +874,7 @@ export default function DiagramCanvas({
               })}
 
               {/* States */}
-              {states.map(st => (
+              {renderStates.map(st => (
                 <circle key={st.id}
                   cx={toMX(st.x)} cy={toMY(st.y)} r={stR}
                   fill={
