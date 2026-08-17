@@ -46,6 +46,17 @@ export default function EditorPage() {
   const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
   const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
 
+  // MOVE_STATE fires on every mousemove during a drag (dozens/sec) —
+  // broadcasting each one unthrottled makes channel.send() (a real
+  // network op, occasionally an actual REST fallback fetch) fight the
+  // drag for CPU/socket time and lags the person doing the dragging,
+  // not just their peers. Local dispatch below stays untouched/instant;
+  // only the network send is throttled, trailing-edge so the final
+  // resting position is never dropped.
+  const lastMoveSentRef  = useRef(0)
+  const pendingMoveRef   = useRef<RemoteAction | null>(null)
+  const moveThrottleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Signed-in collaborators show their initial; anonymous ones get a
   // Google-Docs-style animal identity (no account needed to co-edit).
   const myIdentity = user
@@ -64,11 +75,32 @@ export default function EditorPage() {
   // fresh closure per render is exactly what it expects, not a bug.
   function handleLocalAction(action: RemoteAction) {
     if (channelRef.current) {
-      broadcastAction(channelRef.current, action)
+      const channel = channelRef.current
+      if (action.type === 'MOVE_STATE') {
+        const now = performance.now()
+        const elapsed = now - lastMoveSentRef.current
+        pendingMoveRef.current = action
+        if (elapsed >= 60) {
+          lastMoveSentRef.current = now
+          broadcastAction(channel, action)
+          pendingMoveRef.current = null
+        } else if (!moveThrottleTimer.current) {
+          moveThrottleTimer.current = setTimeout(() => {
+            moveThrottleTimer.current = null
+            if (pendingMoveRef.current && channelRef.current) {
+              lastMoveSentRef.current = performance.now()
+              broadcastAction(channelRef.current, pendingMoveRef.current)
+              pendingMoveRef.current = null
+            }
+          }, 60 - elapsed)
+        }
+      } else {
+        broadcastAction(channel, action)
+      }
       // Stale connection (e.g. this tab was backgrounded a while) —
       // kick off a rejoin so the *next* edit actually goes out, even
       // though this particular one may still be lost.
-      if (channelRef.current.state !== 'joined') setReconnectNonce(n => n + 1)
+      if (channel.state !== 'joined') setReconnectNonce(n => n + 1)
     }
     if (isPublic && docId) {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
@@ -209,6 +241,7 @@ export default function EditorPage() {
 
   useEffect(() => () => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    if (moveThrottleTimer.current) clearTimeout(moveThrottleTimer.current)
   }, [])
 
   const simulator = useSimulator(
