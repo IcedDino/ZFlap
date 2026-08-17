@@ -184,7 +184,7 @@ AlphabetSelector::AlphabetSelector(QWidget *parent)
     int y = (screenGeometry.height() - 600) / 2;
     setGeometry(x, y, 800, 600);
 
-    setWindowTitle("Seleccionar Alfabeto");
+    setWindowTitle("Select Alphabet");
     setModal(true);
 }
 
@@ -240,19 +240,19 @@ void AlphabetSelector::setupUI()
     mainLayout->setContentsMargins(30, 30, 30, 30);
 
     // Title
-    titleLabel = new QLabel("Seleccionar Caracteres del Alfabeto", this);
+    titleLabel = new QLabel("Select Alphabet Characters", this);
     titleLabel->setFont(titleFont);
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet(QString("color: %1; margin-bottom: 10px;").arg(kColorText));
     mainLayout->addWidget(titleLabel);
 
     // Selected characters display
-    selectedLabel = new QLabel("Caracteres seleccionados:", this);
+    selectedLabel = new QLabel("Selected characters:", this);
     selectedLabel->setFont(buttonFont);
     selectedLabel->setStyleSheet(QString("color: %1;").arg(kColorText));
     mainLayout->addWidget(selectedLabel);
 
-    selectedCharsLabel = new QLabel("(ninguno)", this);
+    selectedCharsLabel = new QLabel("(none)", this);
     selectedCharsLabel->setFont(QFont(QApplication::font().family(), 12));
     selectedCharsLabel->setStyleSheet(
         QString("color: %1; background-color: %2; padding: 10px; border: 1px solid %3; border-radius: 5px; min-height: 20px;")
@@ -305,13 +305,13 @@ void AlphabetSelector::createTabs()
     tabWidget->setStyleSheet(tabStyle);
 
     // Create tabs
-    QWidget* uppercaseTab = createKeyboardTab(UPPERCASE_CHARS, "Mayúsculas");
-    QWidget* lowercaseTab = createKeyboardTab(LOWERCASE_CHARS, "Minúsculas");
-    QWidget* symbolsTab = createKeyboardTab(SYMBOL_CHARS, "Símbolos");
+    QWidget* uppercaseTab = createKeyboardTab(UPPERCASE_CHARS, "Uppercase");
+    QWidget* lowercaseTab = createKeyboardTab(LOWERCASE_CHARS, "Lowercase");
+    QWidget* symbolsTab = createKeyboardTab(SYMBOL_CHARS, "Symbols");
 
-    tabWidget->addTab(uppercaseTab, "Mayúsculas");
-    tabWidget->addTab(lowercaseTab, "Minúsculas");
-    tabWidget->addTab(symbolsTab, "Símbolos");
+    tabWidget->addTab(uppercaseTab, "Uppercase");
+    tabWidget->addTab(lowercaseTab, "Lowercase");
+    tabWidget->addTab(symbolsTab, "Symbols");
 }
 
 QWidget* AlphabetSelector::createKeyboardTab(const QString& characters, const QString& tabName)
@@ -416,7 +416,7 @@ void AlphabetSelector::createButtonLayout()
     buttonLayout->setSpacing(15);
 
     // Select All button (uses warm accent — not green)
-    selectAllButton = new QPushButton("Seleccionar Todo", this);
+    selectAllButton = new QPushButton("Select All", this);
     selectAllButton->setFont(buttonFont);
     selectAllButton->setMinimumSize(120, 40);
     selectAllButton->setStyleSheet(QString(
@@ -427,7 +427,7 @@ void AlphabetSelector::createButtonLayout()
     connect(selectAllButton, &QPushButton::clicked, this, &AlphabetSelector::onSelectAll);
 
     // Clear All button (neutral gray — not red)
-    clearAllButton = new QPushButton("Limpiar Todo", this);
+    clearAllButton = new QPushButton("Clear All", this);
     clearAllButton->setFont(buttonFont);
     clearAllButton->setMinimumSize(120, 40);
     clearAllButton->setStyleSheet(QString(
@@ -442,7 +442,7 @@ void AlphabetSelector::createButtonLayout()
     buttonLayout->addStretch();
 
     // Confirm button
-    confirmButton = new QPushButton("CONFIRMAR", this);
+    confirmButton = new QPushButton("Confirm", this);
     confirmButton->setFont(buttonFont);
     confirmButton->setMinimumSize(120, 40);
     confirmButton->setStyleSheet(QString(
@@ -453,7 +453,7 @@ void AlphabetSelector::createButtonLayout()
     connect(confirmButton, &QPushButton::clicked, this, &AlphabetSelector::onConfirm);
 
     // Cancel button
-    cancelButton = new QPushButton("CANCELAR", this);
+    cancelButton = new QPushButton("Cancel", this);
     cancelButton->setFont(buttonFont);
     cancelButton->setMinimumSize(120, 40);
     cancelButton->setStyleSheet(QString(
@@ -526,8 +526,8 @@ void AlphabetSelector::onClearAll()
 void AlphabetSelector::onConfirm()
 {
     if (selectedChars.isEmpty()) {
-        QMessageBox::warning(this, "Advertencia",
-                           "Debe seleccionar al menos un carácter para el alfabeto.");
+        QMessageBox::warning(this, "Warning",
+                           "Please select at least one character for the alphabet.");
         return;
     }
 
@@ -542,7 +542,7 @@ void AlphabetSelector::onCancel()
 void AlphabetSelector::updateSelectedDisplay()
 {
     if (selectedChars.isEmpty()) {
-        selectedCharsLabel->setText("(ninguno)");
+        selectedCharsLabel->setText("(none)");
         selectedCharsLabel->setStyleSheet(
             QString("color: %1; background-color: %2; padding: 10px; border: 1px solid %3; border-radius: 5px; min-height: 20px;")
                    .arg(kColorMutedText)

@@ -1,0 +1,95 @@
+/* Only show on fine-pointer (mouse) devices */
+@media (pointer: coarse) {
+  .dot, .ring { display: none; }
+}
+
+/* ── Dot ──────────────────────────────────────────────────────────────────── */
+
+.dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  pointer-events: none;
+  will-change: transform;
+
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: white;
+
+  /* Dark shadow ring = visible on both light and dark surfaces */
+  box-shadow:
+    0 0 0 1.5px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.14);
+
+  transition:
+    width       0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    height      0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background  0.18s ease,
+    box-shadow  0.18s ease;
+}
+
+/* Hover: dot becomes orange accent */
+.dot[data-hover] {
+  width: 14px;
+  height: 14px;
+  background: var(--orange);
+  box-shadow:
+    0 0 0 1.5px rgba(249, 115, 22, 0.35),
+    0 2px 10px rgba(249, 115, 22, 0.3);
+}
+
+/* Click: ripple outward via box-shadow, no transform conflict */
+.dot[data-click] {
+  animation: dotRipple 0.28s ease-out forwards;
+}
+
+@keyframes dotRipple {
+  0%   { box-shadow: 0 0 0 1.5px rgba(0,0,0,0.18),  0 0 0 0   rgba(249,115,22,0);    }
+  40%  { box-shadow: 0 0 0 1.5px rgba(0,0,0,0.10),  0 0 0 8px rgba(249,115,22,0.18); }
+  100% { box-shadow: 0 0 0 1.5px rgba(0,0,0,0.18),  0 0 0 14px rgba(249,115,22,0);   }
+}
+
+/* ── Ring ─────────────────────────────────────────────────────────────────── */
+
+.ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9998;
+  pointer-events: none;
+  will-change: transform;
+
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+
+  /* White ring + subtle dark shadow for light-bg visibility */
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 2px 10px rgba(0, 0, 0, 0.06);
+
+  transition:
+    width       0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    height      0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 0.2s ease,
+    opacity     0.2s ease;
+}
+
+/* Hover: ring tightens and turns orange */
+.ring[data-hover] {
+  width: 24px;
+  height: 24px;
+  border-color: rgba(249, 115, 22, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(249, 115, 22, 0.12),
+    0 2px 12px rgba(249, 115, 22, 0.12);
+}
+
+/* Click: ring collapses inward */
+.ring[data-click] {
+  width: 18px;
+  height: 18px;
+}

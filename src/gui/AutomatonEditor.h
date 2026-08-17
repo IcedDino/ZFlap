@@ -229,7 +229,10 @@ private:
     QLabel *inputChainLabel;
     QLabel *maxLengthLabel;
     QLabel *resultsLabel;
-    QLabel *automatonTypeLabel; // ADDED: Label for automaton type
+    QLabel *automatonTypeLabel;
+    QLabel *infoBar;
+
+    void updateInfoBar();
 
     // --- Automaton Data & State ---
     Transition transitionHandler; // For Finite Automata

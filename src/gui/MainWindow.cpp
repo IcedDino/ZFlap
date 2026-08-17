@@ -105,14 +105,14 @@ void MainWindow::createMainMenuTab()
     titleLabel->setFont(titleFont);
     layout->addWidget(titleLabel, 0, Qt::AlignHCenter);
     auto* buttonLayout = new QHBoxLayout();
-    createAutomatonButton = new QPushButton("Crear Nuevo Autómata");
-    selectAutomatonButton = new QPushButton("Seleccionar Autómata Existente");
+    createAutomatonButton = new QPushButton("Create New Automaton");
+    selectAutomatonButton = new QPushButton("Open Saved Automaton");
     createAutomatonButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     selectAutomatonButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     buttonLayout->addWidget(createAutomatonButton);
     buttonLayout->addWidget(selectAutomatonButton);
     layout->addLayout(buttonLayout);
-    mainTabWidget->addTab(mainMenuTab, "Gestor de Autómatas");
+    mainTabWidget->addTab(mainMenuTab, "Automaton Manager");
     connect(createAutomatonButton, &QPushButton::clicked, this, &MainWindow::onCreateAutomaton);
     connect(selectAutomatonButton, &QPushButton::clicked, this, &MainWindow::onSelectAutomaton);
 }
@@ -123,17 +123,17 @@ void MainWindow::createStaticLexerTab()
     auto* layout = new QVBoxLayout(staticLexerTab);
     staticLexerInput = new QTextEdit();
     staticLexerInput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    auto* staticLexerAnalyzeButton = new QPushButton("Analizar"); // <-- CAMBIO AQUÍ
+    auto* staticLexerAnalyzeButton = new QPushButton("Analyze");
     staticLexerAnalyzeButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     staticLexerOutput = new QTextEdit();
     staticLexerOutput->setReadOnly(true);
     staticLexerOutput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    layout->addWidget(new QLabel("Texto de Entrada:"));
+    layout->addWidget(new QLabel("Input Text:"));
     layout->addWidget(staticLexerInput);
     layout->addWidget(staticLexerAnalyzeButton);
-    layout->addWidget(new QLabel("Tokens Reconocidos:"));
+    layout->addWidget(new QLabel("Recognized Tokens:"));
     layout->addWidget(staticLexerOutput);
-    mainTabWidget->addTab(staticLexerTab, "Analizador Léxico"); // <-- CAMBIO AQUÍ
+    mainTabWidget->addTab(staticLexerTab, "Lexical Analyzer");
     connect(staticLexerAnalyzeButton, &QPushButton::clicked, this, &MainWindow::onStaticLexerAnalyze);
 }
 
@@ -150,14 +150,14 @@ void MainWindow::createDynamicLexerTab()
     auto* lexicalLayout = new QVBoxLayout(lexicalPanel);
     lexicalRuleTable = new QTableWidget();
     lexicalRuleTable->setColumnCount(2);
-    lexicalRuleTable->setHorizontalHeaderLabels({"Nombre de Token", "Expresión Regular"});
+    lexicalRuleTable->setHorizontalHeaderLabels({"Token Name", "Regular Expression"});
     lexicalRuleTable->horizontalHeader()->setStretchLastSection(true);
     lexicalRuleTable->setStyleSheet(TABLE_STYLE.arg(BORDER_GRAY.name(), LIGHT_GRAY.name(), ZFLAP_YELLOW.name(), ZFLAP_BLACK.name()));
-    addLexicalRuleButton = new QPushButton("Añadir Token");
+    addLexicalRuleButton = new QPushButton("Add Token");
     addLexicalRuleButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
-    removeLexicalRuleButton = new QPushButton("Eliminar Token");
+    removeLexicalRuleButton = new QPushButton("Remove Token");
     removeLexicalRuleButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
-    lexicalLayout->addWidget(new QLabel("1. Define los Tokens (Léxico):"));
+    lexicalLayout->addWidget(new QLabel("1. Define Tokens (Lexical):"));
     lexicalLayout->addWidget(lexicalRuleTable);
     auto* lexicalButtons = new QHBoxLayout();
     lexicalButtons->addWidget(addLexicalRuleButton);
@@ -168,14 +168,14 @@ void MainWindow::createDynamicLexerTab()
     auto* syntacticLayout = new QVBoxLayout(syntacticPanel);
     syntacticRuleTable = new QTableWidget();
     syntacticRuleTable->setColumnCount(2);
-    syntacticRuleTable->setHorizontalHeaderLabels({"Nombre de Patrón", "Secuencia de Tokens (separados por espacio)"});
+    syntacticRuleTable->setHorizontalHeaderLabels({"Pattern Name", "Token Sequence (space-separated)"});
     syntacticRuleTable->horizontalHeader()->setStretchLastSection(true);
     syntacticRuleTable->setStyleSheet(TABLE_STYLE.arg(BORDER_GRAY.name(), LIGHT_GRAY.name(), ZFLAP_YELLOW.name(), ZFLAP_BLACK.name()));
-    addSyntacticRuleButton = new QPushButton("Añadir Patrón");
+    addSyntacticRuleButton = new QPushButton("Add Pattern");
     addSyntacticRuleButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
-    removeSyntacticRuleButton = new QPushButton("Eliminar Patrón");
+    removeSyntacticRuleButton = new QPushButton("Remove Pattern");
     removeSyntacticRuleButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
-    syntacticLayout->addWidget(new QLabel("2. Define los Patrones (Sintaxis):"));
+    syntacticLayout->addWidget(new QLabel("2. Define Patterns (Syntactic):"));
     syntacticLayout->addWidget(syntacticRuleTable);
     auto* syntacticButtons = new QHBoxLayout();
     syntacticButtons->addWidget(addSyntacticRuleButton);
@@ -194,7 +194,7 @@ void MainWindow::createDynamicLexerTab()
     auto* inputLayout = new QVBoxLayout(inputPanel);
     dynamicLexerInput = new QTextEdit();
     dynamicLexerInput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    inputLayout->addWidget(new QLabel("3. Escribe el código a analizar:"));
+    inputLayout->addWidget(new QLabel("3. Enter code to analyze:"));
     inputLayout->addWidget(dynamicLexerInput);
     inputPanel->setLayout(inputLayout);
     QWidget *outputPanel = new QWidget();
@@ -202,12 +202,12 @@ void MainWindow::createDynamicLexerTab()
     dynamicLexerOutput = new QTextEdit();
     dynamicLexerOutput->setReadOnly(true);
     dynamicLexerOutput->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    outputLayout->addWidget(new QLabel("4. Resultados:"));
+    outputLayout->addWidget(new QLabel("4. Results:"));
     outputLayout->addWidget(dynamicLexerOutput);
     outputPanel->setLayout(outputLayout);
     analyzeSplitter->addWidget(inputPanel);
     analyzeSplitter->addWidget(outputPanel);
-    auto* analyzeButton = new QPushButton("Analizar Todo");
+    auto* analyzeButton = new QPushButton("Analyze All");
     analyzeButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
     bottomLayout->addWidget(analyzeSplitter);
     bottomLayout->addWidget(analyzeButton);
@@ -215,7 +215,7 @@ void MainWindow::createDynamicLexerTab()
     mainSplitter->addWidget(topPanel);
     mainSplitter->addWidget(bottomPanel);
     mainLayout->addWidget(mainSplitter);
-    mainTabWidget->addTab(dynamicLexerTab, "Creador de Lenguajes");
+    mainTabWidget->addTab(dynamicLexerTab, "Language Builder");
     connect(addLexicalRuleButton, &QPushButton::clicked, this, &MainWindow::onAddLexicalRule);
     connect(removeLexicalRuleButton, &QPushButton::clicked, this, &MainWindow::onRemoveLexicalRule);
     connect(addSyntacticRuleButton, &QPushButton::clicked, this, &MainWindow::onAddSyntacticRule);
@@ -233,7 +233,7 @@ void MainWindow::createDynamicLexerTab()
 void MainWindow::createAutomatonDialogs() {
     createDialog = new QDialog(this);
     createDialog->setPalette(this->palette());
-    createDialog->setWindowTitle("Crear Nuevo Autómata");
+    createDialog->setWindowTitle("Create New Automaton");
     auto* createLayout = new QVBoxLayout(createDialog);
 
     automatonNameEdit = new QLineEdit();
@@ -246,9 +246,9 @@ void MainWindow::createAutomatonDialogs() {
     automatonTypeComboBox->setStyleSheet(QString(
         "QComboBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 5px; }"
     ).arg(WARM_WHITE.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    automatonTypeComboBox->addItem("Autómata Finito",  static_cast<int>(AutomatonType::FiniteAutomaton));
-    automatonTypeComboBox->addItem("Autómata de Pila", static_cast<int>(AutomatonType::StackAutomaton));
-    automatonTypeComboBox->addItem("Máquina de Turing", static_cast<int>(AutomatonType::TuringMachine));
+    automatonTypeComboBox->addItem("Finite Automaton",  static_cast<int>(AutomatonType::FiniteAutomaton));
+    automatonTypeComboBox->addItem("Stack Automaton", static_cast<int>(AutomatonType::StackAutomaton));
+    automatonTypeComboBox->addItem("Turing Machine", static_cast<int>(AutomatonType::TuringMachine));
 
     // Initial Stack Symbol (for Stack Automaton)
     initialStackSymbolComboBox = new QComboBox();
@@ -257,22 +257,22 @@ void MainWindow::createAutomatonDialogs() {
     ).arg(WARM_WHITE.name(), ZFLAP_BLACK.name(), BORDER_GRAY.name()));
     initialStackSymbolComboBox->addItem("Z0"); // Default initial symbol
 
-    selectAlphabetButton = new QPushButton("Seleccionar Alfabeto");
+    selectAlphabetButton = new QPushButton("Select Alphabet");
     selectAlphabetButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
-    selectedAlphabetLabel = new QLabel("Alfabeto: (ninguno)");
+    selectedAlphabetLabel = new QLabel("Alphabet: (none)");
 
-    auto* createConfirmButton = new QPushButton("Crear");
+    auto* createConfirmButton = new QPushButton("Create");
     createConfirmButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
-    auto* createCancelButton = new QPushButton("Cancelar");
+    auto* createCancelButton = new QPushButton("Cancel");
     createCancelButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
 
-    createLayout->addWidget(new QLabel("Nombre:"));
+    createLayout->addWidget(new QLabel("Name:"));
     createLayout->addWidget(automatonNameEdit);
-    createLayout->addWidget(new QLabel("Descripción:"));
+    createLayout->addWidget(new QLabel("Description:"));
     createLayout->addWidget(descriptionEdit);
-    createLayout->addWidget(new QLabel("Tipo de Autómata:"));
+    createLayout->addWidget(new QLabel("Automaton Type:"));
     createLayout->addWidget(automatonTypeComboBox);
-    createLayout->addWidget(new QLabel("Símbolo Inicial de Pila (solo para Autómata de Pila):"));
+    createLayout->addWidget(new QLabel("Initial Stack Symbol (Stack Automaton only):"));
     createLayout->addWidget(initialStackSymbolComboBox);
     createLayout->addWidget(selectAlphabetButton);
     createLayout->addWidget(selectedAlphabetLabel);
@@ -297,13 +297,13 @@ void MainWindow::createAutomatonDialogs() {
 
     selectDialog = new QDialog(this);
     selectDialog->setPalette(this->palette());
-    selectDialog->setWindowTitle("Seleccionar Autómata");
+    selectDialog->setWindowTitle("Open Automaton");
     auto* selectLayout = new QVBoxLayout(selectDialog);
     automatonList = new QListWidget();
     automatonList->setStyleSheet(TEXT_EDIT_STYLE.arg(ZFLAP_BLACK.name(), BORDER_GRAY.name()));
-    auto* selectConfirmButton = new QPushButton("Seleccionar");
+    auto* selectConfirmButton = new QPushButton("Open");
     selectConfirmButton->setStyleSheet(BUTTON_STYLE_PRIMARY);
-    auto* selectCancelButton = new QPushButton("Cancelar");
+    auto* selectCancelButton = new QPushButton("Cancel");
     selectCancelButton->setStyleSheet(BUTTON_STYLE_SECONDARY);
     selectLayout->addWidget(automatonList);
     auto* selectButtonLayout = new QHBoxLayout();
@@ -316,10 +316,10 @@ void MainWindow::createAutomatonDialogs() {
 
 void MainWindow::onAddLexicalRule() { addLexicalRule(); }
 void MainWindow::addLexicalRule(const QString& name, const QString& pattern) { int newRow = lexicalRuleTable->rowCount(); lexicalRuleTable->insertRow(newRow); lexicalRuleTable->setItem(newRow, 0, new QTableWidgetItem(name)); lexicalRuleTable->setItem(newRow, 1, new QTableWidgetItem(pattern)); }
-void MainWindow::onRemoveLexicalRule() { if (lexicalRuleTable->currentRow() >= 0) { lexicalRuleTable->removeRow(lexicalRuleTable->currentRow()); } else { QMessageBox::warning(this, "Sin selección", "Por favor, selecciona un token de la tabla para eliminar."); } }
+void MainWindow::onRemoveLexicalRule() { if (lexicalRuleTable->currentRow() >= 0) { lexicalRuleTable->removeRow(lexicalRuleTable->currentRow()); } else { QMessageBox::warning(this, "No Selection", "Please select a token row to remove."); } }
 void MainWindow::onAddSyntacticRule() { addSyntacticRule(); }
 void MainWindow::addSyntacticRule(const QString& name, const QString& sequence) { int newRow = syntacticRuleTable->rowCount(); syntacticRuleTable->insertRow(newRow); syntacticRuleTable->setItem(newRow, 0, new QTableWidgetItem(name)); syntacticRuleTable->setItem(newRow, 1, new QTableWidgetItem(sequence)); }
-void MainWindow::onRemoveSyntacticRule() { if (syntacticRuleTable->currentRow() >= 0) { syntacticRuleTable->removeRow(syntacticRuleTable->currentRow()); } else { QMessageBox::warning(this, "Sin selección", "Por favor, selecciona un patrón de la tabla para eliminar."); } }
+void MainWindow::onRemoveSyntacticRule() { if (syntacticRuleTable->currentRow() >= 0) { syntacticRuleTable->removeRow(syntacticRuleTable->currentRow()); } else { QMessageBox::warning(this, "No Selection", "Please select a pattern row to remove."); } }
 
 void MainWindow::onDynamicLexerAnalyze() {
     std::vector<LexicalRule> lexicalRules;
@@ -461,7 +461,7 @@ void MainWindow::onCreateAutomaton() {
     automatonNameEdit->clear();
     descriptionEdit->clear();
     selectedAlphabet.clear();
-    selectedAlphabetLabel->setText("Alfabeto: (ninguno)");
+    selectedAlphabetLabel->setText("Alphabet: (none)");
     automatonTypeComboBox->setCurrentIndex(0); // Reset to Finite Automaton
     initialStackSymbolComboBox->clear();
     initialStackSymbolComboBox->addItem("Z0"); // Default initial symbol
@@ -485,13 +485,13 @@ void MainWindow::onSelectAutomaton() {
 }
 void MainWindow::onCreateNewAutomaton() {
     QString name = automatonNameEdit->text().trimmed();
-    if (name.isEmpty() || selectedAlphabet.empty()) { QMessageBox::warning(this, "Datos incompletos", "El nombre y el alfabeto son obligatorios."); return; }
+    if (name.isEmpty() || selectedAlphabet.empty()) { QMessageBox::warning(this, "Incomplete Data", "Name and alphabet are required."); return; }
 
     AutomatonType type = static_cast<AutomatonType>(automatonTypeComboBox->currentData().toInt());
     char initialStackSymbol = '\0';
     if (type == AutomatonType::StackAutomaton) {
         if (initialStackSymbolComboBox->currentText().isEmpty()) {
-            QMessageBox::warning(this, "Datos incompletos", "El símbolo inicial de pila es obligatorio para Autómatas de Pila.");
+            QMessageBox::warning(this, "Incomplete Data", "An initial stack symbol is required for Stack Automata.");
             return;
         }
         initialStackSymbol = initialStackSymbolComboBox->currentText().at(0).toLatin1();
@@ -499,7 +499,7 @@ void MainWindow::onCreateNewAutomaton() {
 
     auto* editor = new AutomatonEditor();
     editor->loadAutomaton(name, selectedAlphabet, type, initialStackSymbol);
-    int index = mainTabWidget->addTab(editor, QString("Autómata: %1").arg(name));
+    int index = mainTabWidget->addTab(editor, QString("Automaton: %1").arg(name));
     mainTabWidget->setCurrentIndex(index);
     createDialog->accept();
 }
@@ -520,6 +520,30 @@ void MainWindow::onSelectAlphabet() {
 }
 void MainWindow::onCancelCreate() { createDialog->reject(); }
 void MainWindow::onCancelSelect() { selectDialog->reject(); }
-void MainWindow::loadSelectedAutomaton(const QString &) { /* ... */ }
-void MainWindow::openEditorWithFile(const QString &) { /* ... */ }
+
+void MainWindow::loadSelectedAutomaton(const QString& name) {
+    QSettings settings("ZFlap", "ZFlap");
+    QStringList recent = settings.value("recentAutomata").toStringList();
+    QString filePath;
+    for (const QString& p : recent) {
+        if (QFileInfo(p).completeBaseName() == name) { filePath = p; break; }
+    }
+    if (filePath.isEmpty()) {
+        QMessageBox::warning(this, "Not Found",
+            "Could not locate the file for automaton \"" + name + "\".\n"
+            "It may have been moved or deleted.");
+        return;
+    }
+    openEditorWithFile(filePath);
+}
+
+void MainWindow::openEditorWithFile(const QString& filePath) {
+    auto* editor = new AutomatonEditor();
+    editor->loadFromFile(filePath);
+    QString name = QFileInfo(filePath).completeBaseName();
+    int idx = mainTabWidget->addTab(editor, "Automaton: " + name);
+    mainTabWidget->setCurrentIndex(idx);
+    selectDialog->accept();
+}
+
 void MainWindow::setupButtonAnimation(QPushButton*) { /* ... */ }

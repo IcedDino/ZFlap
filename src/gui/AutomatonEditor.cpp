@@ -191,8 +191,8 @@ void MinimapView::paintEvent(QPaintEvent *event)
 
     // Then, draw the viewport rectangle on top of everything.
     QPainter painter(viewport());
-    painter.setPen(QPen(QColor(255, 0, 0, 150), 2)); // Red, semi-transparent, 2px thick
-    painter.setBrush(QColor(255, 0, 0, 30)); // Light red fill
+    painter.setPen(QPen(QColor(184, 134, 11, 220), 2)); // goldenrod border
+    painter.setBrush(QColor(240, 207, 96, 50));          // ZFLAP_YELLOW, low alpha
     painter.drawRect(m_viewRect);
 }
 
@@ -621,8 +621,9 @@ AutomatonEditor::AutomatonEditor(QWidget *parent)
       pda(nullptr), tm(nullptr), currentAutomatonType(AutomatonType::FiniteAutomaton), pdaInitialStackSymbol('\0'), tmBlankSymbol('_'),
       validationDetailsText(nullptr), pdaStackBox(nullptr), pdaStackList(nullptr), pdaInitialStackLabel(nullptr), pdaInitialStackEdit(nullptr), pdaStepIndex(0), tmStepIndex(0)
 {
-    // ADDED: Initialize new label
+    // Initialize overlay/info labels
     automatonTypeLabel = nullptr;
+    infoBar = nullptr;
     setupUI();
     setFocusPolicy(Qt::StrongFocus); // Allow the widget to receive key press events
     applyStyles();
@@ -657,7 +658,8 @@ void AutomatonEditor::loadAutomaton(const QString& name, const std::set<char>& a
     }
 
     setWindowTitle("Editor - " + name);
-    updateAutomatonTypeDisplay(); // Update the display based on the new type
+    updateAutomatonTypeDisplay();
+    updateInfoBar();
 }
 
 
@@ -681,8 +683,9 @@ void AutomatonEditor::clearAutomaton()
     validationChain.clear();
     currentValidationStates.clear();
     resetEditorState();
-    updateAutomatonTypeDisplay(); // Update type on clear
-    updateMinimap(); // Update minimap on clear
+    updateAutomatonTypeDisplay();
+    updateInfoBar();
+    updateMinimap();
 }
 
 void AutomatonEditor::rebuildTransitionHandler()
@@ -757,6 +760,7 @@ void AutomatonEditor::rebuildTransitionHandler()
     }
 
     updateAutomatonTypeDisplay(); // Update type after rebuilding
+    updateInfoBar();
     updateMinimap(); // Ensure minimap is up-to-date
 }
 
@@ -798,8 +802,20 @@ void AutomatonEditor::keyPressEvent(QKeyEvent *event)
 
 
 void AutomatonEditor::setupUI() {
+    // Root layout: editor content on top, info bar pinned at the bottom.
+    auto* rootLayout = new QVBoxLayout(this);
+    rootLayout->setSpacing(0);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+
+    infoBar = new QLabel("Type: —  |  States: 0  |  Transitions: 0");
+    infoBar->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    infoBar->setFixedHeight(24);
+    infoBar->setStyleSheet(
+        "background-color: #F0CF60; color: #1E1E1E; padding: 2px 10px; "
+        "border-top: 1px solid #D0D0D0; font-size: 10pt;");
+
     // Change the main layout to arrange the toolbar and content side-by-side.
-    mainLayout = new QHBoxLayout(this);
+    mainLayout = new QHBoxLayout();
     // Set margins to keep the toolbar flush left, but provide padding elsewhere.
     mainLayout->setContentsMargins(0, 15, 15, 15);
 
@@ -818,56 +834,61 @@ void AutomatonEditor::setupUI() {
 
     // Create a dedicated widget for the vertical toolbar.
     auto* toolbarWidget = new QWidget();
-    toolbarWidget->setObjectName("toolsGroup"); // Keep object name for styling
-    toolbarWidget->setFixedWidth(70); // Give the vertical toolbar a fixed width.
+    toolbarWidget->setObjectName("toolsGroup");
+    toolbarWidget->setFixedWidth(95); // Wide enough for icon + text label
 
-    // Change the toolbar layout to stack buttons vertically and center them.
     toolbarLayout = new QVBoxLayout(toolbarWidget);
-    toolbarLayout->setSpacing(10);
+    toolbarLayout->setSpacing(4);
     toolbarLayout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
-    addStateButton = new QPushButton("⊕");
+    // Helper: creates a compound widget (icon button above small text label).
+    auto makeTool = [&](const QString& icon, const QString& label) -> std::pair<QWidget*, QPushButton*> {
+        auto* w = new QWidget();
+        auto* vl = new QVBoxLayout(w);
+        vl->setSpacing(2);
+        vl->setContentsMargins(0, 4, 0, 4);
+        auto* btn = new QPushButton(icon, w);
+        btn->setFixedSize(40, 40);
+        auto* lbl = new QLabel(label, w);
+        lbl->setAlignment(Qt::AlignCenter);
+        lbl->setStyleSheet("font-size: 8pt;");
+        vl->addWidget(btn, 0, Qt::AlignHCenter);
+        vl->addWidget(lbl, 0, Qt::AlignHCenter);
+        return {w, btn};
+    };
+
+    auto [addStateWidget,   addStateBtn]   = makeTool("⊕", "Add");
+    auto [linkWidget,       linkBtn]       = makeTool("↪", "Link");
+    auto [setInitialWidget, setInitialBtn] = makeTool("→", "Init.");
+    auto [toggleFinalWidget,toggleFinalBtn]= makeTool("◎", "Final");
+    auto [saveWidget,       saveBtn]       = makeTool("💾", "Save");
+    auto [generateWidget,   generateBtn]   = makeTool("⇒", "Gen.");
+    auto [validateWidget,   validateBtn]   = makeTool("✓", "Check");
+
+    // Assign to members
+    addStateButton      = addStateBtn;
+    linkButton          = linkBtn;
+    setInitialButton    = setInitialBtn;
+    toggleFinalButton   = toggleFinalBtn;
+    saveButton          = saveBtn;
+    generatePanelButton = generateBtn;
+    validateChainButton = validateBtn;
+
     addStateButton->setToolTip("Add State");
-    addStateButton->setFixedSize(40, 40);
-
-    linkButton = new QPushButton("↪");
-    linkButton->setToolTip("Link States");
-    linkButton->setFixedSize(40, 40);
-    linkButton->setCheckable(true);
-    linkButton->setObjectName("linkButton");
-
-    // New: Button to toggle generator panel
-    generatePanelButton = new QPushButton("⇒");
-    generatePanelButton->setToolTip("Generate Accepted Strings Panel");
-    generatePanelButton->setFixedSize(40, 40);
-    generatePanelButton->setCheckable(true);
-
-    setInitialButton = new QPushButton("→"); // This one is already great
+    linkButton->setToolTip("Link States");         linkButton->setCheckable(true); linkButton->setObjectName("linkButton");
     setInitialButton->setToolTip("Set Initial State");
-    setInitialButton->setFixedSize(40, 40);
-
-    toggleFinalButton = new QPushButton("◎"); // This one is also perfect
     toggleFinalButton->setToolTip("Toggle Final State");
-    toggleFinalButton->setFixedSize(40, 40);
+    saveButton->setToolTip("Save automaton (.zflap)");
+    generatePanelButton->setToolTip("Generate Accepted Strings"); generatePanelButton->setCheckable(true);
+    validateChainButton->setToolTip("Validate Chain");            validateChainButton->setCheckable(true); validateChainButton->setObjectName("validateChainButton");
 
-    saveButton = new QPushButton("▼");
-    saveButton->setToolTip("Guardar autómata (.zflap)");
-    saveButton->setFixedSize(40, 40);
-
-    // Validation tool button
-    validateChainButton = new QPushButton("?");
-    validateChainButton->setToolTip("Validate Chain");
-    validateChainButton->setFixedSize(40, 40);
-    validateChainButton->setCheckable(true);
-    validateChainButton->setObjectName("validateChainButton");
-
-    toolbarLayout->addWidget(addStateButton);
-    toolbarLayout->addWidget(linkButton);
-    toolbarLayout->addWidget(setInitialButton);
-    toolbarLayout->addWidget(toggleFinalButton);
-    toolbarLayout->addWidget(saveButton);
-    toolbarLayout->addWidget(generatePanelButton);
-    toolbarLayout->addWidget(validateChainButton);
+    toolbarLayout->addWidget(addStateWidget);
+    toolbarLayout->addWidget(linkWidget);
+    toolbarLayout->addWidget(setInitialWidget);
+    toolbarLayout->addWidget(toggleFinalWidget);
+    toolbarLayout->addWidget(saveWidget);
+    toolbarLayout->addWidget(generateWidget);
+    toolbarLayout->addWidget(validateWidget);
     toolbarLayout->addStretch();
 
     // --- Tool Button Group for mutual exclusivity ---
@@ -875,14 +896,14 @@ void AutomatonEditor::setupUI() {
     toolButtonGroup->addButton(linkButton);
     toolButtonGroup->addButton(validateChainButton);
     toolButtonGroup->addButton(generatePanelButton);
-    toolButtonGroup->setExclusive(true); // Only one can be checked at a time
+    toolButtonGroup->setExclusive(true);
 
-    connect(addStateButton, &QPushButton::clicked, this, &AutomatonEditor::onAddStateClicked);
-    connect(linkButton, &QPushButton::clicked, this, &AutomatonEditor::onLinkToolClicked);
+    connect(addStateButton,      &QPushButton::clicked, this, &AutomatonEditor::onAddStateClicked);
+    connect(linkButton,          &QPushButton::clicked, this, &AutomatonEditor::onLinkToolClicked);
     connect(generatePanelButton, &QPushButton::clicked, this, &AutomatonEditor::onGenerateToolClicked);
-    connect(setInitialButton, &QPushButton::clicked, this, &AutomatonEditor::onSetInitialState);
-    connect(toggleFinalButton, &QPushButton::clicked, this, &AutomatonEditor::onToggleFinalState);
-    connect(saveButton, &QPushButton::clicked, this, &AutomatonEditor::onSaveAutomatonClicked);
+    connect(setInitialButton,    &QPushButton::clicked, this, &AutomatonEditor::onSetInitialState);
+    connect(toggleFinalButton,   &QPushButton::clicked, this, &AutomatonEditor::onToggleFinalState);
+    connect(saveButton,          &QPushButton::clicked, this, &AutomatonEditor::onSaveAutomatonClicked);
     connect(validateChainButton, &QPushButton::clicked, this, &AutomatonEditor::onValidateToolClicked);
 
     // --- Sidebar Panels ---
@@ -962,8 +983,8 @@ void AutomatonEditor::setupUI() {
 
     chainInput = new QLineEdit();
     chainInput->setPlaceholderText("Enter chain to validate");
-    validationStatusLabel = new QLabel("Status: Idle");
-    validationStatusLabel->setStyleSheet("font-weight: bold;");
+    validationStatusLabel = new QLabel("—  Idle");
+    validationStatusLabel->setStyleSheet("font-weight:bold; color:#666;");
 
     auto *controlsLayout = new QHBoxLayout();
     playButton = new QPushButton("▶");
@@ -1095,6 +1116,10 @@ void AutomatonEditor::setupUI() {
     minimapView->setStyleSheet("border: 2px solid #3A4D6D; border-radius: 5px; background-color: rgba(255, 254, 245, 0.7);");
 
     updateMinimap();
+
+    // Assemble root layout: editor content above, info bar below.
+    rootLayout->addLayout(mainLayout);
+    rootLayout->addWidget(infoBar);
 }
 
 void AutomatonEditor::applyStyles()
@@ -1243,13 +1268,18 @@ void AutomatonEditor::onBackgroundClicked()
 
 void AutomatonEditor::onAddStateClicked() {
     resetEditorState();
-    QString name = "q" + QString::number(stateCounter++);
+    int idx = stateCounter++;
+    QString name = "q" + QString::number(idx);
     auto *state = new StateItem(name);
-    state->setPos(100.0 + (stateCounter % 5) * 80.0, 100.0 + (stateCounter / 5) * 80.0);
+    QPointF c = graphicsView->mapToScene(graphicsView->viewport()->rect().center());
+    qreal dx = (idx == 0) ? 0.0 : ((idx % 2 == 0 ? 1 : -1) * 80.0);
+    qreal dy = (idx == 0) ? 0.0 : ((idx / 2 % 2 == 0 ? 1 : -1) * 80.0);
+    state->setPos(c.x() + dx, c.y() + dy);
     scene->addItem(state);
     stateItems[name] = state;
-    updateAutomatonTypeDisplay(); // Update type on new state
-    updateMinimap(); // Update minimap when scene content changes
+    updateAutomatonTypeDisplay();
+    updateInfoBar();
+    updateMinimap();
 }
 
 void AutomatonEditor::onLinkToolClicked() {
@@ -1412,11 +1442,15 @@ void AutomatonEditor::onInstantValidateClicked() {
     }
 
     if (accepted) {
-        validationStatusLabel->setText("Status: Accepted (Instant Check)");
-        validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+        validationStatusLabel->setText("✓  Accepted");
+        validationStatusLabel->setStyleSheet(
+            "font-weight:bold; background:#D4EDDA; color:#1E1E1E; "
+            "border:1px solid #6B8E6B; border-radius:4px; padding:4px;");
     } else {
-        validationStatusLabel->setText("Status: Rejected (Instant Check)");
-        validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+        validationStatusLabel->setText("✗  Rejected");
+        validationStatusLabel->setStyleSheet(
+            "font-weight:bold; background:#F8D7DA; color:#1E1E1E; "
+            "border:1px solid #8E6B6B; border-radius:4px; padding:4px;");
     }
 }
 
@@ -1661,6 +1695,21 @@ void AutomatonEditor::updateAutomatonTypeDisplay() {
     }
 }
 
+void AutomatonEditor::updateInfoBar() {
+    if (!infoBar) return;
+    QString typeStr;
+    switch (currentAutomatonType) {
+        case AutomatonType::FiniteAutomaton: typeStr = "FA";  break;
+        case AutomatonType::StackAutomaton:  typeStr = "PDA"; break;
+        case AutomatonType::TuringMachine:   typeStr = "TM";  break;
+    }
+    int transitions = 0;
+    for (QGraphicsItem* item : scene->items())
+        if (qgraphicsitem_cast<TransitionItem*>(item)) transitions++;
+    infoBar->setText(QString("Type: %1  |  States: %2  |  Transitions: %3")
+        .arg(typeStr).arg(stateItems.size()).arg(transitions));
+}
+
 // FIXED: This function now validates all symbols *before* modifying the automaton state.
 void AutomatonEditor::onUpdateTransitionSymbol() {
     if (!selectedTransitionItem) return;
@@ -1840,9 +1889,9 @@ void AutomatonEditor::deleteState(StateItem* stateToDelete)
     delete stateToDelete;
 
     stateCounter = std::max(0, stateCounter - 1);
-    rebuildTransitionHandler(); // Rebuild the backend after state deletion
-    updateAutomatonTypeDisplay(); // Update type on state deletion
-    updateMinimap(); // Update minimap when scene content changes
+    rebuildTransitionHandler(); // Rebuild the backend after state deletion (also calls updateInfoBar)
+    updateAutomatonTypeDisplay();
+    updateMinimap();
 }
 
 void AutomatonEditor::deleteTransition(TransitionItem* transitionToDelete)
@@ -1897,8 +1946,8 @@ void AutomatonEditor::onClearValidation()
     if(playButton) playButton->setEnabled(true);
     if(nextStepButton) nextStepButton->setEnabled(true);
     if(validationStatusLabel) {
-        validationStatusLabel->setText("Status: Idle");
-        validationStatusLabel->setStyleSheet("font-weight: bold; color: black;");
+        validationStatusLabel->setText("—  Idle");
+        validationStatusLabel->setStyleSheet("font-weight:bold; color:#666;");
     }
     if (validationDetailsText) {
         validationDetailsText->clear();
@@ -1946,8 +1995,8 @@ void AutomatonEditor::onPlayValidation()
             }
         }
         chainInput->setEnabled(false);
-        validationStatusLabel->setText("Status: In progress...");
-        validationStatusLabel->setStyleSheet("font-weight: bold; color: blue;");
+        validationStatusLabel->setText("▶  In progress...");
+        validationStatusLabel->setStyleSheet("font-weight:bold; color:#555;");
         validationTimer->start(800);
         return;
     }
@@ -1957,15 +2006,16 @@ void AutomatonEditor::onPlayValidation()
     initialState->highlight(true);
 
     chainInput->setEnabled(false);
-    validationStatusLabel->setText("Status: In progress...");
-    validationStatusLabel->setStyleSheet("font-weight: bold; color: blue;");
+    validationStatusLabel->setText("▶  In progress...");
+    validationStatusLabel->setStyleSheet("font-weight:bold; color:#555;");
     validationTimer->start(800); // Start timer for automatic steps
 }
 
 void AutomatonEditor::onPauseValidation()
 {
     validationTimer->stop();
-    validationStatusLabel->setText("Status: Paused");
+    validationStatusLabel->setText("⏸  Paused");
+    validationStatusLabel->setStyleSheet("font-weight:bold; color:#555;");
 }
 
 void AutomatonEditor::onNextStepValidation()
@@ -1973,14 +2023,18 @@ void AutomatonEditor::onNextStepValidation()
     if (currentAutomatonType == AutomatonType::StackAutomaton) {
         if (pdaPath.empty()) {
             validationTimer->stop();
-            validationStatusLabel->setText("Status: Rejected (no path)");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+            validationStatusLabel->setText("✗  Rejected");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#F8D7DA; color:#1E1E1E; "
+                "border:1px solid #8E6B6B; border-radius:4px; padding:4px;");
             return;
         }
         if (pdaStepIndex >= (int)pdaPath.size()) {
             validationTimer->stop();
-            validationStatusLabel->setText("Status: Accepted");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+            validationStatusLabel->setText("✓  Accepted");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#D4EDDA; color:#1E1E1E; "
+                "border:1px solid #6B8E6B; border-radius:4px; padding:4px;");
             return;
         }
         auto step = pdaPath[pdaStepIndex];
@@ -2015,14 +2069,18 @@ void AutomatonEditor::onNextStepValidation()
     if (currentAutomatonType == AutomatonType::TuringMachine) {
         if (tmPath.empty()) {
             validationTimer->stop();
-            validationStatusLabel->setText("Status: Rejected (no path)");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+            validationStatusLabel->setText("✗  Rejected");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#F8D7DA; color:#1E1E1E; "
+                "border:1px solid #8E6B6B; border-radius:4px; padding:4px;");
             return;
         }
         if (tmStepIndex >= (int)tmPath.size()) {
             validationTimer->stop();
-            validationStatusLabel->setText("Status: Accepted");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+            validationStatusLabel->setText("✓  Accepted");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#D4EDDA; color:#1E1E1E; "
+                "border:1px solid #6B8E6B; border-radius:4px; padding:4px;");
             return;
         }
         auto step = tmPath[tmStepIndex];
@@ -2050,8 +2108,10 @@ void AutomatonEditor::onNextStepValidation()
 
     if (currentValidationStates.empty()) {
         validationTimer->stop();
-        validationStatusLabel->setText("Status: Rejected (no possible transitions)");
-        validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+        validationStatusLabel->setText("✗  Rejected");
+        validationStatusLabel->setStyleSheet(
+            "font-weight:bold; background:#F8D7DA; color:#1E1E1E; "
+            "border:1px solid #8E6B6B; border-radius:4px; padding:4px;");
         playButton->setEnabled(false);
         nextStepButton->setEnabled(false);
         return;
@@ -2067,11 +2127,15 @@ void AutomatonEditor::onNextStepValidation()
             }
         }
         if (accepted) {
-            validationStatusLabel->setText("Status: Accepted");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: green;");
+            validationStatusLabel->setText("✓  Accepted");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#D4EDDA; color:#1E1E1E; "
+                "border:1px solid #6B8E6B; border-radius:4px; padding:4px;");
         } else {
-            validationStatusLabel->setText("Status: Rejected (ended in non-final state)");
-            validationStatusLabel->setStyleSheet("font-weight: bold; color: red;");
+            validationStatusLabel->setText("✗  Rejected");
+            validationStatusLabel->setStyleSheet(
+                "font-weight:bold; background:#F8D7DA; color:#1E1E1E; "
+                "border:1px solid #8E6B6B; border-radius:4px; padding:4px;");
         }
         playButton->setEnabled(false);
         nextStepButton->setEnabled(false);

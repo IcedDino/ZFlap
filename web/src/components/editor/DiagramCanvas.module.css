@@ -1,0 +1,130 @@
+/* ── Root ───────────────────────────────────────────────────────────────────── */
+
+.root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* ── SVG canvas ─────────────────────────────────────────────────────────────── */
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  display: block;
+}
+
+/* ── Minimap ────────────────────────────────────────────────────────────────── */
+
+.minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+
+  background: rgba(250, 249, 247, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.07),
+    0 1px 2px  rgba(0, 0, 0, 0.04);
+
+  overflow: hidden;
+  padding: 2px;
+  user-select: none;
+}
+
+.minimap svg {
+  display: block;
+}
+
+/* ── Transition label popup ─────────────────────────────────────────────────── */
+
+.popup {
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 12px));
+  z-index: 60;
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+
+  background: rgba(250, 249, 247, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.10),
+    0 1px 3px  rgba(0, 0, 0, 0.06);
+}
+
+.popupHint {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.popupInput {
+  width: 80px;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.popupInput:focus {
+  border-color: var(--orange);
+}
+.popupInput::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+.popupOk {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: var(--orange);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.popupOk:hover {
+  background: var(--orange-dark);
+}
+
+.popupCancel {
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.12s;
+  flex-shrink: 0;
+}
+.popupCancel:hover {
+  color: var(--text);
+}
