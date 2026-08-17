@@ -171,27 +171,32 @@
   background: var(--green-bg);
 }
 
-.peersBadge {
-  display: inline-flex;
+.peopleStack {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--green);
-  background: var(--green-bg);
-  border: 1px solid rgba(34, 197, 94, 0.22);
-  border-radius: 99px;
-  padding: 5px 10px;
-  margin-right: 8px;
-  white-space: nowrap;
+  margin-right: 10px;
 }
 
-.peersDot {
-  width: 6px;
-  height: 6px;
+.peerAvatar {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
-  background: var(--green);
-  flex-shrink: 0;
+  border: 2px solid var(--bg-card);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: -8px;
+}
+.peerAvatar:first-child { margin-left: 0; }
+
+.peerAvatarMore {
+  composes: peerAvatar;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .topbarBtnPrimary {

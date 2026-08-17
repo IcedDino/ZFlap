@@ -133,6 +133,14 @@ function computeTransPath(
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+export interface PeerCursor {
+  id:         string
+  color:      string
+  x:          number | null
+  y:          number | null
+  selectedId: string | null
+}
+
 interface Props {
   states:      FAState[]
   transitions: FATransition[]
@@ -143,6 +151,7 @@ interface Props {
   activeTransIds?:  Set<string>
   readOnly?:        boolean
   hideMinimap?:     boolean
+  peers?:           PeerCursor[]
   onAddState:         (x: number, y: number) => void
   onMoveState:        (id: string, x: number, y: number) => void
   onDeleteState:      (id: string) => void
@@ -154,16 +163,17 @@ interface Props {
   onSelect:           (id: string | null) => void
   onDeleteSelected:   () => void
   onViewChange?:      (v: View) => void
+  onCursorMove?:      (x: number, y: number) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function DiagramCanvas({
   states, transitions, initialId, selectedId, tool,
-  activeStateIds, activeTransIds, readOnly, hideMinimap,
+  activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
   onAddState, onMoveState, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
   onAddTransition, onDeleteTransition, onSelect, onDeleteSelected,
-  onViewChange,
+  onViewChange, onCursorMove,
 }: Props) {
   const svgRef   = useRef<SVGSVGElement>(null)
   const groupRef = useRef<SVGGElement>(null)
@@ -176,6 +186,12 @@ export default function DiagramCanvas({
   // View-change callback (mirrored to ref so applyView can call it without deps)
   const cbViewChange = useRef(onViewChange)
   cbViewChange.current = onViewChange
+
+  // Live-collab cursor broadcast — throttled so we don't fire on every
+  // native mousemove (dozens/sec) when live collaborators are watching
+  const cbCursorMove  = useRef(onCursorMove)
+  cbCursorMove.current = onCursorMove
+  const lastCursorSentRef = useRef(0)
 
   // Minimap refs
   const mmRectRef = useRef<SVGRectElement>(null)
@@ -368,6 +384,15 @@ export default function DiagramCanvas({
     // ── mousemove ──
     function onMove(e: MouseEvent) {
       if (mmDragRef.current) { panToMinimap(e); return }
+
+      if (cbCursorMove.current) {
+        const now = performance.now()
+        if (now - lastCursorSentRef.current > 80) {
+          lastCursorSentRef.current = now
+          const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+          cbCursorMove.current(w.x, w.y)
+        }
+      }
 
       const d = dragRef.current
 
@@ -647,6 +672,7 @@ export default function DiagramCanvas({
             const isDragSrc  = transDrag?.fromId === st.id
             const isDragSnap = transDrag?.snapId  === st.id
             const isActive   = activeStateIds?.has(st.id) ?? false
+            const peerHere   = peers?.find(p => p.selectedId === st.id)
 
             const fill   = isActive ? '#F0FDF4' : isSel ? '#FFF7ED' : '#FFFFFF'
             const stroke = isActive ? '#16A34A' : isSel ? '#F97316' : (isHov || isDragSnap) ? '#C8C3BA' : '#E6E2DA'
@@ -655,6 +681,17 @@ export default function DiagramCanvas({
 
             return (
               <g key={st.id}>
+                {/* A live collaborator has this state selected */}
+                {peerHere && (
+                  <circle cx={st.x} cy={st.y} r={STATE_R + 16}
+                    fill="none"
+                    stroke={peerHere.color}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    pointerEvents="none"
+                  />
+                )}
+
                 {/* Active state glow */}
                 {isActive && (
                   <circle cx={st.x} cy={st.y} r={STATE_R + 12}
@@ -726,6 +763,18 @@ export default function DiagramCanvas({
               </g>
             )
           })}
+
+          {/* ── Live collaborators' cursors ── */}
+          {peers?.filter(p => p.x !== null && p.y !== null).map(p => (
+            <g key={p.id} pointerEvents="none">
+              <path
+                d={`M${p.x},${p.y} L${p.x! + 3},${p.y! + 14} L${p.x! + 6.5},${p.y! + 9.5} L${p.x! + 12},${p.y! + 10.5} Z`}
+                fill={p.color}
+                stroke="#FFFFFF"
+                strokeWidth={1.2}
+              />
+            </g>
+          ))}
 
         </g>
       </svg>

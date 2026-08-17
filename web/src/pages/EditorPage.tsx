@@ -15,7 +15,8 @@ import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
-import { joinAutomatonChannel, broadcastAction } from '../lib/realtime'
+import { joinAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity } from '../lib/realtime'
+import type { Peer } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
@@ -37,10 +38,19 @@ export default function EditorPage() {
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
-  const [peers, setPeers]       = useState(0)
+  const [peers, setPeers]       = useState<Peer[]>([])
 
-  const channelRef    = useRef<RealtimeChannel | null>(null)
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const channelRef      = useRef<RealtimeChannel | null>(null)
+  const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const myColorRef      = useRef(randomPeerColor())
+  const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
+  const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
+
+  // Signed-in collaborators show their initial; anonymous ones get a
+  // Google-Docs-style animal identity (no account needed to co-edit).
+  const myIdentity = user
+    ? { initial: (user.email ?? '?')[0].toUpperCase(), name: user.email ?? 'Signed in' }
+    : anonIdentityRef.current
   // handleSave is declared further down (it needs `automaton`, which needs
   // this callback first) — kept current via ref so handleLocalAction can
   // call it without a circular declaration order.
@@ -57,6 +67,19 @@ export default function EditorPage() {
     if (isPublic && docId) {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
       autoSaveTimer.current = setTimeout(() => { handleSaveRef.current() }, 1500)
+    }
+  }
+
+  // Cursor position + current selection, shared the same way — Presence,
+  // not Broadcast, since it's "my current live state" rather than a
+  // one-off event. Same non-memoized-closure reasoning as above.
+  function handleCursorMove(x: number, y: number) {
+    lastCursorRef.current = { x, y }
+    if (channelRef.current) {
+      trackPresence(channelRef.current, {
+        color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
+        x, y, selectedId: automaton.selectedId,
+      })
     }
   }
 
@@ -129,6 +152,10 @@ export default function EditorPage() {
   useEffect(() => {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
+      initial: {
+        color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
+        x: null, y: null, selectedId: automaton.selectedId,
+      },
       onAction: automaton.applyRemote,
       onPresence: setPeers,
     })
@@ -136,9 +163,22 @@ export default function EditorPage() {
     return () => {
       channel.unsubscribe()
       channelRef.current = null
-      setPeers(0)
+      setPeers([])
     }
   }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Selection changed without necessarily moving the mouse (e.g. a click),
+  // or identity changed (signed in mid-session) — push it to peers right
+  // away rather than waiting for the next cursor move.
+  useEffect(() => {
+    if (!channelRef.current) return
+    trackPresence(channelRef.current, {
+      color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
+      x: lastCursorRef.current?.x ?? null,
+      y: lastCursorRef.current?.y ?? null,
+      selectedId: automaton.selectedId,
+    })
+  }, [automaton.selectedId, myIdentity.initial, myIdentity.name])
 
   useEffect(() => () => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
@@ -202,6 +242,8 @@ export default function EditorPage() {
         activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
         readOnly={mode === 'simulate'}
         hideMinimap={mode === 'simulate'}
+        peers={peers}
+        onCursorMove={handleCursorMove}
         onAddState={automaton.addState}
         onMoveState={automaton.moveState}
         onDeleteState={automaton.deleteState}
@@ -240,11 +282,29 @@ export default function EditorPage() {
 
         <div className={s.topbarSpacer} />
 
-        {isPublic && docId && (
-          <span className={s.peersBadge} title="People live on this automaton right now">
-            <span className={s.peersDot} /> {peers} here
-          </span>
-        )}
+        {isPublic && docId && (() => {
+          const people = [
+            { id: 'me', color: myColorRef.current, initial: myIdentity.initial, name: `You (${myIdentity.name})` },
+            ...peers,
+          ]
+          const visible  = people.slice(0, 4)
+          const overflow = people.length - visible.length
+          return (
+            <div className={s.peopleStack} title={`${people.length} people live on this automaton`}>
+              {visible.map((p, i) => (
+                <span
+                  key={p.id}
+                  className={s.peerAvatar}
+                  style={{ background: p.color, zIndex: visible.length - i }}
+                  title={p.name}
+                >
+                  {p.initial}
+                </span>
+              ))}
+              {overflow > 0 && <span className={s.peerAvatarMore}>+{overflow}</span>}
+            </div>
+          )
+        })()}
 
         <button
           className={isSaved ? s.topbarBtnSaved : s.topbarBtn}
