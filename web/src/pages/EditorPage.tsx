@@ -15,7 +15,7 @@ import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
-import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity } from '../lib/realtime'
+import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, trackPresence, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
 import type { Peer } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
@@ -43,6 +43,7 @@ export default function EditorPage() {
   const channelRef      = useRef<RealtimeChannel | null>(null)
   const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const myColorRef      = useRef(randomPeerColor())
+  const clientIdRef     = useRef(createClientId())
   const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
   const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
 
@@ -82,20 +83,20 @@ export default function EditorPage() {
         pendingMoveRef.current = action
         if (elapsed >= 60) {
           lastMoveSentRef.current = now
-          broadcastAction(channel, action)
+          broadcastAction(channel, clientIdRef.current, action)
           pendingMoveRef.current = null
         } else if (!moveThrottleTimer.current) {
           moveThrottleTimer.current = setTimeout(() => {
             moveThrottleTimer.current = null
             if (pendingMoveRef.current && channelRef.current) {
               lastMoveSentRef.current = performance.now()
-              broadcastAction(channelRef.current, pendingMoveRef.current)
+              broadcastAction(channelRef.current, clientIdRef.current, pendingMoveRef.current)
               pendingMoveRef.current = null
             }
           }, 60 - elapsed)
         }
       } else {
-        broadcastAction(channel, action)
+        broadcastAction(channel, clientIdRef.current, action)
       }
       // Stale connection (e.g. this tab was backgrounded a while) —
       // kick off a rejoin so the *next* edit actually goes out, even
@@ -192,6 +193,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
+      clientId: clientIdRef.current,
       initial: {
         color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name,
         x: null, y: null, selectedId: automaton.selectedId,

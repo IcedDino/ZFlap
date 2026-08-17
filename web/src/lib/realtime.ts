@@ -45,24 +45,41 @@ export interface Peer extends PresenceState {
   id: string
 }
 
+// A stable per-tab id — generate once (EditorPage keeps it in a ref) and
+// reuse across reconnects. Both the broadcast self-filter below and the
+// presence key are keyed on it, so a mid-session rejoin (see
+// leaveAutomatonChannel) doesn't change "who I am" to the rest of the
+// channel — it's the same tab either way.
+export function createClientId(): string {
+  return crypto.randomUUID()
+}
+
 interface JoinOptions {
+  clientId:   string
   initial:    PresenceState
   onAction:   (action: RemoteAction) => void
   onPresence: (peers: Peer[]) => void
 }
 
-export function joinAutomatonChannel(id: string, { initial, onAction, onPresence }: JoinOptions): RealtimeChannel {
-  const selfKey = crypto.randomUUID()
+export function joinAutomatonChannel(id: string, { clientId, initial, onAction, onPresence }: JoinOptions): RealtimeChannel {
   const channel = supabase.channel(`automaton:${id}`, {
-    config: { broadcast: { self: false }, presence: { key: selfKey } },
+    config: { broadcast: { self: false }, presence: { key: clientId } },
   })
 
   channel
-    .on('broadcast', { event: 'action' }, ({ payload }) => onAction(payload as RemoteAction))
+    .on('broadcast', { event: 'action' }, ({ payload }) => {
+      // Belt-and-suspenders alongside broadcast.self:false — that flag is
+      // tied to the underlying connection's identity, which can shift
+      // across a reconnect; this check doesn't depend on it, so a stale
+      // echo of our own (possibly throttle-delayed) action can never get
+      // reapplied over a newer local edit and cause it to jump back.
+      if (payload.senderId === clientId) return
+      onAction(payload.action as RemoteAction)
+    })
     .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<PresenceState>()
       const peers = Object.entries(state)
-        .filter(([key]) => key !== selfKey)
+        .filter(([key]) => key !== clientId)
         .map(([key, entries]) => ({ id: key, ...entries[0] }))
       onPresence(peers)
     })
@@ -73,8 +90,8 @@ export function joinAutomatonChannel(id: string, { initial, onAction, onPresence
   return channel
 }
 
-export function broadcastAction(channel: RealtimeChannel, action: RemoteAction): void {
-  channel.send({ type: 'broadcast', event: 'action', payload: action })
+export function broadcastAction(channel: RealtimeChannel, clientId: string, action: RemoteAction): void {
+  channel.send({ type: 'broadcast', event: 'action', payload: { senderId: clientId, action } })
 }
 
 // Not channel.unsubscribe() — that just async-leaves the topic without
