@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import ZedMascot from './ZedMascot'
 import { useAuth } from '../hooks/useAuth'
@@ -8,6 +8,7 @@ type Tab = 'login' | 'signup'
 
 interface Props {
   onClose: () => void
+  onAuthenticated?: () => void
 }
 
 // A state entering "accepted" — the same visual grammar DiagramCanvas uses
@@ -24,7 +25,7 @@ function AcceptedStateGraphic() {
   )
 }
 
-export default function AuthModal({ onClose }: Props) {
+export default function AuthModal({ onClose, onAuthenticated }: Props) {
   const { signIn, signUp } = useAuth()
   const [tab, setTab]           = useState<Tab>('login')
   const [email, setEmail]       = useState('')
@@ -32,6 +33,14 @@ export default function AuthModal({ onClose }: Props) {
   const [error, setError]       = useState<string | null>(null)
   const [busy, setBusy]         = useState(false)
   const [confirmSent, setConfirmSent] = useState(false)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -42,12 +51,14 @@ export default function AuthModal({ onClose }: Props) {
       setBusy(false)
       if (error) { setError(error); return }
       onClose()
+      onAuthenticated?.()
     } else {
       const { error, needsConfirmation } = await signUp(email, password)
       setBusy(false)
       if (error) { setError(error); return }
       if (needsConfirmation) { setConfirmSent(true); return }
       onClose()
+      onAuthenticated?.()
     }
   }
 
@@ -85,7 +96,7 @@ export default function AuthModal({ onClose }: Props) {
                 className={`${s.tab} ${tab === 'signup' ? s.tabActive : ''}`}
                 onClick={() => { setTab('signup'); setError(null) }}
               >
-                Create account
+                Sign up
               </button>
             </div>
 
@@ -118,7 +129,7 @@ export default function AuthModal({ onClose }: Props) {
                 />
               </div>
               <button className={s.submit} type="submit" disabled={busy}>
-                {busy ? 'Please wait…' : tab === 'login' ? 'Log in' : 'Create account'}
+                {busy ? 'Please wait…' : tab === 'login' ? 'Log in' : 'Sign up'}
               </button>
             </form>
           </>

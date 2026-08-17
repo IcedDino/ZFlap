@@ -96,25 +96,18 @@
   color: var(--text);
 }
 
-.navLinks { display: flex; gap: 24px; }
-
-.navLink {
-  font-size: 14px;
-  color: var(--text-muted);
-  transition: color 0.15s;
-}
-.navLink:hover { color: var(--text); }
-
 .navRight { display: flex; align-items: center; gap: 10px; }
 
-.navEmail {
-  font-size: 13px;
+.navIconLink {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
+  transition: background 0.12s, color 0.12s;
 }
+.navIconLink:hover { background: var(--bg-input); color: var(--text); }
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
 
@@ -310,7 +303,6 @@
 @media (max-width: 1024px) {
   .hero      { gap: 32px; padding: 56px 32px 64px; }
   .heroTitle { font-size: 42px; }
-  .navLinks  { display: none; }
   .featGrid  { grid-template-columns: repeat(2, 1fr); }
 }
 

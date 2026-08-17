@@ -17,19 +17,17 @@
 
 .modal {
   position: relative;
-  width: 340px;
+  width: 420px;
   max-width: 100%;
 
-  background: rgba(250, 249, 247, 0.97);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: #FFFFFF;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
     0 24px 60px rgba(26, 24, 20, 0.20),
     0 2px 8px rgba(26, 24, 20, 0.06);
 
-  padding: 20px;
+  padding: 32px 32px 40px;
   animation: pop 0.18s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
@@ -43,12 +41,12 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 26px;
 }
 
 .brandName {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.2px;
   color: var(--text);
@@ -56,15 +54,18 @@
 
 .close {
   margin-left: auto;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: var(--text-dim);
-  transition: background 0.12s, color 0.12s;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(26, 24, 20, 0.08);
+  color: var(--text);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.close:hover { background: var(--bg-input); color: var(--text); }
+.close:hover { background: var(--orange-light); border-color: var(--orange-border); color: var(--orange-dark); }
 
 /* ── Sliding-pill tabs — same motif as the editor's Edit/Simulate toggle ──── */
 
@@ -72,21 +73,23 @@
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  background: rgba(26, 24, 20, 0.05);
+  background: #FFFFFF;
+  border: 1px solid var(--border);
   border-radius: 99px;
-  padding: 3px;
-  margin-bottom: 18px;
+  padding: 4px;
+  margin-bottom: 26px;
 }
 
 .tabIndicator {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
   border-radius: 99px;
-  background: var(--bg-card);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.10);
+  background: #FFFFFF;
+  border: 1.5px solid var(--orange);
+  box-shadow: 0 0 0 3px var(--orange-glow);
   transition: transform 0.26s cubic-bezier(0.35, 1.3, 0.5, 1);
 }
 .tabs[data-tab='signup'] .tabIndicator { transform: translateX(100%); }
@@ -94,15 +97,17 @@
 .tab {
   position: relative;
   z-index: 1;
-  padding: 7px 0;
-  font-size: 12.5px;
+  padding: 11px 0;
+  font-size: 14px;
   font-weight: 500;
   font-family: inherit;
-  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
   border-radius: 99px;
   transition: color 0.18s ease;
 }
-.tab:hover { color: var(--text-muted); }
+.tab:hover { color: var(--text); }
 .tabActive { color: var(--text); font-weight: 600; }
 
 /* ── Fields ──────────────────────────────────────────────────────────────── */
@@ -110,12 +115,12 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 14px;
+  gap: 7px;
+  margin-bottom: 18px;
 }
 
 .label {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -127,8 +132,8 @@
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 9px 11px;
-  font-size: 13.5px;
+  padding: 12px 14px;
+  font-size: 14px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
   color: var(--text);
@@ -154,11 +159,12 @@
 
 .submit {
   width: 100%;
-  height: 37px;
-  border-radius: var(--radius-sm);
+  height: 44px;
+  margin-top: 4px;
+  border-radius: 99px;
   background: var(--orange);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   font-family: inherit;
   box-shadow: 0 1px 3px rgba(249, 115, 22, 0.25);

@@ -169,6 +169,12 @@ export default function EditorPage() {
           className={s.nameInput}
           value={name}
           onChange={e => setName(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.currentTarget.blur()
+              handleSave()
+            }
+          }}
           spellCheck={false}
           aria-label="Automaton name"
         />
@@ -185,16 +191,13 @@ export default function EditorPage() {
           <Download size={14} /> Export
         </button>
 
-        <div className={s.topbarDivider} />
-
-        {user ? (
+        {!user && (
           <>
-            <span className={s.accountEmail}>{user.email}</span>
+            <div className={s.topbarDivider} />
+            <button className={s.topbarBtn} onClick={() => setAuthOpen(true)}>
+              <User size={14} /> Sign in
+            </button>
           </>
-        ) : (
-          <button className={s.topbarBtn} onClick={() => setAuthOpen(true)}>
-            <User size={14} /> Sign in
-          </button>
         )}
       </header>
 
