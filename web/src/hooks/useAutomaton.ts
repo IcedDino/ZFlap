@@ -54,14 +54,18 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
   switch (action.type) {
 
     case 'ADD_STATE':
+      // Doesn't touch selectedId — selection is per-user, not part of the
+      // shared graph. addState() below dispatches a local-only SELECT
+      // follow-up so the person who added it sees it selected, without
+      // hijacking a remote peer's selection when this arrives via
+      // applyRemote (both paths go through this same reducer).
       return {
         ...data,
         states: [...data.states, {
           id: action.id, label: action.label,
           x: action.x, y: action.y, isFinal: false,
         }],
-        initialId:  data.initialId  ?? action.id,
-        selectedId: action.id,
+        initialId: data.initialId ?? action.id,
       }
 
     case 'MOVE_STATE':
@@ -101,13 +105,13 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
       return { ...data, initialId: action.id }
 
     case 'ADD_TRANSITION':
+      // Same reasoning as ADD_STATE above — no selectedId mutation here.
       return {
         ...data,
         transitions: [...data.transitions, {
           id: action.id, fromId: action.fromId,
           toId: action.toId, label: action.label,
         }],
-        selectedId: action.id,
       }
 
     case 'DELETE_TRANSITION':
@@ -204,6 +208,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     const n = labelNumRef.current++
     const action: RemoteAction = { type: 'ADD_STATE', id: crypto.randomUUID(), label: `q${n}`, x, y }
     dispatch(action)
+    dispatch({ type: 'SELECT', id: action.id }) // local-only, never broadcast
     onActionRef.current?.(action)
   }, [])
 
@@ -240,6 +245,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
   const addTransition = useCallback((fromId: string, toId: string, label: string) => {
     const action: RemoteAction = { type: 'ADD_TRANSITION', id: crypto.randomUUID(), fromId, toId, label }
     dispatch(action)
+    dispatch({ type: 'SELECT', id: action.id }) // local-only, never broadcast
     onActionRef.current?.(action)
   }, [])
 
