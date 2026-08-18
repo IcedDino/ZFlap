@@ -159,17 +159,18 @@ export default function DfaDemo() {
     edgeTimer.current = setTimeout(() => setActiveEdge(null), 400)
   }, [])
 
-  const handleKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      setInput(prev => prev.slice(0, -1))
-      return
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const filtered = e.target.value.split('').filter(c => ALLOWED.has(c)).join('')
+    if (filtered.length > input.length) {
+      let cur = statePath[statePath.length - 1]
+      for (let i = input.length; i < filtered.length; i++) {
+        const sym = filtered[i]
+        flashEdge(cur, sym)
+        cur = DELTA[cur]?.[sym] ?? cur
+      }
     }
-    if (!ALLOWED.has(e.key)) return
-    e.preventDefault()
-    const prevState = statePath[statePath.length - 1]
-    setInput(prev => prev + e.key)
-    flashEdge(prevState, e.key)
-  }, [statePath, flashEdge])
+    setInput(filtered)
+  }, [input, statePath, flashEdge])
 
   useEffect(() => () => clearTimeout(edgeTimer.current), [])
 
@@ -249,8 +250,14 @@ export default function DfaDemo() {
         <input
           ref={inputRef}
           className={s.hiddenInput}
-          onKeyDown={handleKey}
-          readOnly
+          value={input}
+          onChange={handleChange}
+          inputMode="numeric"
+          pattern="[01]*"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           aria-label="DFA input"
         />
       </div>
