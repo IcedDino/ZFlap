@@ -69,8 +69,7 @@
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  background: rgba(250,249,247,0.92);
-  backdrop-filter: blur(14px);
+  background: var(--bg);
   z-index: 50;
   gap: 32px;
 }
@@ -314,6 +313,7 @@
 
 @media (max-width: 640px) {
   .nav        { padding: 0 20px; }
+  .hero       { padding-top: 28px; }
   .heroTitle  { font-size: 34px; letter-spacing: -1.2px; }
   .heroSub    { font-size: 15px; }
   .heroActions { flex-direction: column; width: 100%; }
