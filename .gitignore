@@ -52,3 +52,9 @@ Testing/
 *.log
 *.autosave
 *~
+
+# Web
+web/node_modules/
+web/dist/
+web/.wrangler/
+web/.env.local
