@@ -50,9 +50,6 @@ export default function HomePage() {
 
       {/* ── Hero + live demo ── */}
       <section className={styles.hero}>
-        <div className={styles.heroGlow} />
-        <div className={styles.heroGlow2} />
-
         {/* Left: copy */}
         <div className={styles.heroContent}>
           <div className={styles.heroPill}>
