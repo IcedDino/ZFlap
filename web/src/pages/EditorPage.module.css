@@ -292,6 +292,23 @@
 .statusDotWarn  { composes: statusDot; background: var(--orange); }
 .statusDotError { composes: statusDot; background: var(--red); }
 
+/* ── Import error toast ───────────────────────────────────────────────────── */
+
+.importToast {
+  position: fixed;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: var(--red);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
 /* ── Small-screen warning ─────────────────────────────────────────────────── */
 
 .smallWarning {

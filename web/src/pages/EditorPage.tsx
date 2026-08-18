@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Download, Save, Check, Pencil, Play, Share2, User } from 'lucide-react'
+import { Download, Upload, Save, Check, Pencil, Play, Share2, User } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
 import DiagramCanvas from '../components/editor/DiagramCanvas'
@@ -38,10 +38,12 @@ export default function EditorPage() {
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string }[]>([])
   const [cursors, setCursors]   = useState<Record<string, CursorState>>({})
 
   const channelRef      = useRef<RealtimeChannel | null>(null)
+  const importInputRef  = useRef<HTMLInputElement | null>(null)
   const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const myColorRef      = useRef(randomPeerColor())
   const clientIdRef     = useRef(createClientId())
@@ -189,6 +191,34 @@ export default function EditorPage() {
       console.error(err)
     }
   }, [docId, isPublic])
+
+  const handleExport = useCallback(() => {
+    const payload = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name || 'automaton'}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [name, automaton.states, automaton.transitions, automaton.initialId])
+
+  const handleImportFile = useCallback((file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result as string)
+        if (!Array.isArray(parsed.states) || !Array.isArray(parsed.transitions)) throw new Error('Invalid automaton file')
+        automaton.load({ states: parsed.states, transitions: parsed.transitions, initialId: parsed.initialId ?? null })
+        if (typeof parsed.name === 'string') setName(parsed.name)
+      } catch (err) {
+        console.error(err)
+        setImportError('That file is not a valid automaton export.')
+        setTimeout(() => setImportError(null), 3000)
+      }
+    }
+    reader.readAsText(file)
+  }, [automaton.load])
 
   // Join the live channel for public docs — anyone with the link, no
   // account needed. Private docs never join, so they stay single-editor.
@@ -390,7 +420,21 @@ export default function EditorPage() {
         <button className={s.topbarBtn} onClick={handleShare} disabled={!docId}>
           <Share2 size={14} /> {copied ? 'Copied!' : 'Share'}
         </button>
-        <button className={s.topbarBtnPrimary}>
+        <button className={s.topbarBtn} onClick={() => importInputRef.current?.click()}>
+          <Upload size={14} /> Import
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const file = e.target.files?.[0]
+            if (file) handleImportFile(file)
+            e.target.value = ''
+          }}
+        />
+        <button className={s.topbarBtnPrimary} onClick={handleExport}>
           <Download size={14} /> Export
         </button>
 
@@ -403,6 +447,8 @@ export default function EditorPage() {
           </>
         )}
       </header>
+
+      {importError && <div className={s.importToast}>{importError}</div>}
 
       {/* ── Left floating toolbar — always mounted, slides out in simulate mode ── */}
       <FloatingToolbar
