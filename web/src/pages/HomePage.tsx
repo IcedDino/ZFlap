@@ -150,6 +150,27 @@ export default function HomePage() {
       </section>
 
 
+      {/* ── Team ── */}
+      <section className={styles.team}>
+        <div className={styles.sectionLabel}>Team</div>
+        <h2 className={styles.sectionTitle}>Built by</h2>
+        <div className={styles.teamGrid}>
+          {[
+            { name: 'Yocsan Luevano', username: 'yocsan15', avatar: 'https://avatars.githubusercontent.com/u/142452894?v=4', url: 'https://github.com/yocsan15' },
+            { name: 'Jovany', username: 'IcedDino', avatar: 'https://avatars.githubusercontent.com/u/140675889?v=4', url: 'https://github.com/IcedDino' },
+            { name: 'Martin Nuñez', username: 'tzisai', avatar: 'https://avatars.githubusercontent.com/u/138941008?v=4', url: 'https://github.com/tzisai' },
+          ].map(m => (
+            <a key={m.username} href={m.url} className={styles.teamCard} target="_blank" rel="noreferrer">
+              <img src={m.avatar} alt={m.name} className={styles.teamAvatar} />
+              <div className={styles.teamInfo}>
+                <span className={styles.teamName}>{m.name}</span>
+                <span className={styles.teamUsername}>@{m.username}</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+
       {/* ── Footer ── */}
       <footer className={styles.footer}>
         <div className={styles.footerBrand}>

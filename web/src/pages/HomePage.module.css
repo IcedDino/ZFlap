@@ -276,6 +276,70 @@
 .featCard h3 { font-size: 14px; font-weight: 700; color: var(--text); }
 .featCard p  { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
 
+/* ── Team ─────────────────────────────────────────────────────────────── */
+
+.team {
+  padding: 72px 48px;
+  border-top: 1px solid var(--border);
+}
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.teamCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 36px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  text-decoration: none;
+  color: inherit;
+}
+.teamCard:hover {
+  border-color: var(--orange-border);
+  box-shadow: 0 4px 24px rgba(249,115,22,0.1);
+  transform: translateY(-4px);
+}
+
+.teamAvatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--border);
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+.teamCard:hover .teamAvatar {
+  border-color: var(--orange-border);
+}
+
+.teamInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.teamName {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.teamUsername {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
 .footer {
@@ -309,6 +373,8 @@
   .hero { grid-template-columns: 1fr; padding: 48px 24px 56px; }
   .heroContent { align-items: flex-start; }
   .heroSub     { max-width: 100%; }
+  .team        { padding: 56px 24px; }
+  .teamGrid    { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 640px) {
@@ -323,4 +389,8 @@
   .featGrid   { grid-template-columns: 1fr; }
   .sectionTitle { font-size: 26px; }
   .footer     { padding: 16px 20px; }
+  .team       { padding: 48px 20px; }
+  .teamGrid   { grid-template-columns: 1fr; gap: 16px; }
+  .teamCard   { padding: 28px 20px; }
+  .teamAvatar { width: 64px; height: 64px; }
 }

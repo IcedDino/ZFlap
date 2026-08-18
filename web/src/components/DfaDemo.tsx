@@ -58,18 +58,18 @@ function StateNode({
       {isFinal && (
         <circle cx={cx} cy={cy} r={R + 6}
           fill="none"
-          stroke={active ? 'rgba(240,207,96,0.7)' : visited ? 'rgba(240,207,96,0.3)' : 'rgba(255,255,255,0.1)'}
+          stroke={active ? 'rgba(240,207,96,0.7)' : visited ? 'rgba(240,207,96,0.4)' : '#C8C2B8'}
           strokeWidth="1.5"
         />
       )}
       {/* Main circle */}
       <circle
         cx={cx} cy={cy} r={R}
-        fill={active ? 'rgba(240,207,96,0.12)' : visited ? 'rgba(240,207,96,0.04)' : '#13151E'}
+        fill={active ? 'rgba(240,207,96,0.15)' : visited ? 'rgba(240,207,96,0.08)' : '#FFFFFF'}
         stroke={
           active   ? '#F0CF60'
-          : visited  ? 'rgba(240,207,96,0.45)'
-          : 'rgba(255,255,255,0.12)'
+          : visited  ? 'rgba(240,207,96,0.6)'
+          : '#B8B2A8'
         }
         strokeWidth={active ? 2 : 1.5}
         style={{ transition: 'all 0.2s ease' }}
@@ -79,7 +79,7 @@ function StateNode({
         x={cx} y={cy + 5}
         textAnchor="middle"
         fontSize="14" fontFamily="Inter,sans-serif" fontWeight="600"
-        fill={active ? '#F0CF60' : visited ? 'rgba(240,207,96,0.7)' : 'rgba(255,255,255,0.35)'}
+        fill={active ? '#D4900A' : visited ? '#A08030' : '#1A1814'}
         style={{ transition: 'fill 0.2s ease' }}
       >
         {label}
@@ -89,7 +89,7 @@ function StateNode({
         <line
           x1={cx - R - 22} y1={cy}
           x2={cx - R - 2}  y2={cy}
-          stroke={active ? 'rgba(240,207,96,0.7)' : 'rgba(255,255,255,0.2)'}
+          stroke={active ? 'rgba(240,207,96,0.7)' : '#B8B2A8'}
           strokeWidth="1.5"
           markerEnd="url(#arrowInit)"
         />
@@ -108,7 +108,7 @@ function Edge({
     <g>
       <path
         d={d} fill="none"
-        stroke={active ? '#F0CF60' : faint ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.12)'}
+        stroke={active ? '#F0CF60' : faint ? '#DDD8CE' : '#C8C2B8'}
         strokeWidth={active ? 2 : 1.5}
         markerEnd={active ? 'url(#arrowActive)' : 'url(#arrow)'}
         style={{ transition: 'stroke 0.2s ease, stroke-width 0.2s ease' }}
@@ -117,7 +117,7 @@ function Edge({
         x={lx} y={ly}
         textAnchor="middle"
         fontSize="12" fontFamily="JetBrains Mono,monospace"
-        fill={active ? '#F0CF60' : 'rgba(255,255,255,0.3)'}
+        fill={active ? '#D4900A' : '#6B6459'}
         style={{ transition: 'fill 0.2s ease' }}
       >
         {label}
@@ -192,13 +192,13 @@ export default function DfaDemo() {
         <svg viewBox="0 0 420 185" className={s.svg}>
           <defs>
             <marker id="arrow" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L7,3 z" fill="rgba(255,255,255,0.2)" />
+              <path d="M0,0 L0,6 L7,3 z" fill="#C8C2B8" />
             </marker>
             <marker id="arrowActive" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
               <path d="M0,0 L0,6 L7,3 z" fill="#F0CF60" />
             </marker>
             <marker id="arrowInit" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L7,3 z" fill="rgba(255,255,255,0.2)" />
+              <path d="M0,0 L0,6 L7,3 z" fill="#B8B2A8" />
             </marker>
           </defs>
 
@@ -214,11 +214,11 @@ export default function DfaDemo() {
 
           {/* State labels below nodes */}
           <text x={CX.q0} y={CY.q0 + R + 18} textAnchor="middle" fontSize="10"
-            fill="rgba(255,255,255,0.2)" fontFamily="Inter,sans-serif">
+            fill="#AAA49A" fontFamily="Inter,sans-serif">
             {FINAL.has('q0') ? 'accept' : ''}
           </text>
           <text x={CX.q1} y={CY.q1 + R + 18} textAnchor="middle" fontSize="10"
-            fill="rgba(255,255,255,0.2)" fontFamily="Inter,sans-serif">
+            fill="#AAA49A" fontFamily="Inter,sans-serif">
             reject
           </text>
         </svg>
