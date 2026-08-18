@@ -76,6 +76,70 @@ function hitState(states: FAState[], wx: number, wy: number): FAState | null {
   return null
 }
 
+// ── Collision push ────────────────────────────────────────────────────────────
+// States all live on one z-plane — they can never stack. Dragging one into
+// another shoves the other(s) aside instead of overlapping. Runs as a small
+// position-based-dynamics relaxation: a handful of passes over every pair,
+// each pass nudging apart whatever's still too close. The dragged state is
+// pinned (only *other* states move because of it) so it stays glued to the
+// cursor; two states pushed into each other by a chain reaction split the
+// correction evenly between them.
+
+const PUSH_GAP        = 16   // minimum breathing room between circle edges
+const PUSH_ITERATIONS = 6
+const GOLDEN_ANGLE    = 2.399963229728653   // radians — spreads coincident states apart
+
+function effRadius(st: FAState): number {
+  return STATE_R + (st.isFinal ? FINAL_GAP : 0)
+}
+
+function resolveCollisions(
+  states: FAState[], draggedId: string, x: number, y: number
+): Map<string, { x: number; y: number }> {
+  const pos = new Map(states.map(st => [st.id, { x: st.x, y: st.y }]))
+  pos.set(draggedId, { x, y })
+
+  for (let pass = 0; pass < PUSH_ITERATIONS; pass++) {
+    for (let i = 0; i < states.length; i++) {
+      for (let j = i + 1; j < states.length; j++) {
+        const a = states[i], b = states[j]
+        const pa = pos.get(a.id)!, pb = pos.get(b.id)!
+        const minDist = effRadius(a) + effRadius(b) + PUSH_GAP
+        let dx = pb.x - pa.x, dy = pb.y - pa.y
+        let dist = Math.hypot(dx, dy)
+        if (dist >= minDist) continue
+
+        if (dist === 0) {
+          // Perfectly coincident (e.g. an import that stacked states) — no
+          // direction to push along, so fan them out around a circle instead
+          // of dividing by zero.
+          const angle = j * GOLDEN_ANGLE
+          dx = Math.cos(angle); dy = Math.sin(angle); dist = 1
+        }
+        const [nx, ny] = [dx / dist, dy / dist]
+        const overlap = minDist - dist
+
+        const aPinned = a.id === draggedId, bPinned = b.id === draggedId
+        if (aPinned) {
+          pb.x += nx * overlap; pb.y += ny * overlap
+        } else if (bPinned) {
+          pa.x -= nx * overlap; pa.y -= ny * overlap
+        } else {
+          pa.x -= nx * overlap / 2; pa.y -= ny * overlap / 2
+          pb.x += nx * overlap / 2; pb.y += ny * overlap / 2
+        }
+      }
+    }
+  }
+
+  const updates = new Map<string, { x: number; y: number }>()
+  for (const st of states) {
+    const p = pos.get(st.id)!
+    if (st.id === draggedId || p.x !== st.x || p.y !== st.y) updates.set(st.id, p)
+  }
+  return updates
+}
+
 function getTransId(target: EventTarget | null): string | null {
   if (!target || !(target instanceof Element)) return null
   return target.closest('[data-tid]')?.getAttribute('data-tid') ?? null
@@ -416,7 +480,8 @@ export default function DiagramCanvas({
 
       if (d.mode === 'state') {
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
-        cbMove.current(d.stateId, w.x - d.offX, w.y - d.offY)
+        const updates = resolveCollisions(statesRef.current, d.stateId, w.x - d.offX, w.y - d.offY)
+        for (const [id, p] of updates) cbMove.current(id, p.x, p.y)
         return
       }
 
@@ -679,11 +744,18 @@ export default function DiagramCanvas({
             const sw     = isActive ? 2.5 : isSel ? 2 : 1.5
             const tFill  = isActive ? '#15803D' : isSel ? '#EA6C0A' : '#1A1814'
 
+            // The state being dragged by this client stays glued to the
+            // cursor with zero latency; every other state (including ones
+            // this drag is actively pushing aside) eases into its new spot
+            // so the push reads as a shove, not a teleport.
+            const isLocalDrag = dragRef.current.mode === 'state' && dragRef.current.stateId === st.id
+            const groupStyle  = isLocalDrag ? undefined : { transition: 'transform 0.12s ease-out' }
+
             return (
-              <g key={st.id}>
+              <g key={st.id} transform={`translate(${st.x} ${st.y})`} style={groupStyle}>
                 {/* A live collaborator has this state selected */}
                 {peerHere && (
-                  <circle cx={st.x} cy={st.y} r={STATE_R + 16}
+                  <circle r={STATE_R + 16}
                     fill="none"
                     stroke={peerHere.color}
                     strokeWidth={2}
@@ -694,7 +766,7 @@ export default function DiagramCanvas({
 
                 {/* Active state glow */}
                 {isActive && (
-                  <circle cx={st.x} cy={st.y} r={STATE_R + 12}
+                  <circle r={STATE_R + 12}
                     fill="rgba(22,163,74,0.10)"
                     stroke="rgba(22,163,74,0.20)"
                     strokeWidth={1}
@@ -704,7 +776,7 @@ export default function DiagramCanvas({
 
                 {/* Snap / source glow */}
                 {(isDragSrc || isDragSnap) && (
-                  <circle cx={st.x} cy={st.y} r={STATE_R + 13}
+                  <circle r={STATE_R + 13}
                     fill="rgba(249,115,22,0.07)"
                     stroke="rgba(249,115,22,0.22)"
                     strokeWidth={1}
@@ -714,7 +786,7 @@ export default function DiagramCanvas({
 
                 {/* Final outer ring */}
                 {st.isFinal && (
-                  <circle cx={st.x} cy={st.y} r={STATE_R + FINAL_GAP}
+                  <circle r={STATE_R + FINAL_GAP}
                     fill="none"
                     stroke={isSel ? '#F97316' : '#E6E2DA'}
                     strokeWidth={sw}
@@ -722,7 +794,7 @@ export default function DiagramCanvas({
                 )}
 
                 {/* Body */}
-                <circle cx={st.x} cy={st.y} r={STATE_R}
+                <circle r={STATE_R}
                   fill={fill} stroke={stroke} strokeWidth={sw}
                   style={{ transition: 'fill 0.15s, stroke 0.15s' }}
                 />
@@ -731,12 +803,12 @@ export default function DiagramCanvas({
                 {isInit && (
                   <g pointerEvents="none">
                     <line
-                      x1={st.x - STATE_R - 24} y1={st.y}
-                      x2={st.x - STATE_R - 2}  y2={st.y}
+                      x1={-STATE_R - 24} y1={0}
+                      x2={-STATE_R - 2}  y2={0}
                       stroke={isSel ? '#F97316' : '#AAA49A'} strokeWidth={1.5}
                     />
                     <path
-                      d={`M${st.x-STATE_R-9},${st.y-5} L${st.x-STATE_R-1},${st.y} L${st.x-STATE_R-9},${st.y+5}`}
+                      d={`M${-STATE_R-9},${-5} L${-STATE_R-1},${0} L${-STATE_R-9},${5}`}
                       fill="none"
                       stroke={isSel ? '#F97316' : '#AAA49A'}
                       strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
@@ -749,7 +821,6 @@ export default function DiagramCanvas({
                   const { text, fontSize } = fitLabel(st.label)
                   return (
                     <text
-                      x={st.x} y={st.y}
                       textAnchor="middle" dominantBaseline="middle"
                       fontSize={fontSize} fontFamily="Inter, sans-serif" fontWeight={600}
                       fill={tFill}

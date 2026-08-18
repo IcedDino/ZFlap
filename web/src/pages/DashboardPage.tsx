@@ -4,7 +4,7 @@ import { Plus, Trash2, Eye } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import AutomatonPreview from '../components/AutomatonPreview'
 import { useAuth } from '../hooks/useAuth'
-import { classifyAutomaton } from '../hooks/useAutomaton'
+import { classifyAutomaton, clearLocalDraft } from '../hooks/useAutomaton'
 import { listMine, remove, type AutomatonRow } from '../lib/automatonService'
 import s from './DashboardPage.module.css'
 
@@ -29,6 +29,11 @@ export default function DashboardPage() {
 
   if (!authLoading && !user) return <Navigate to="/" replace />
 
+  function handleNew() {
+    clearLocalDraft()
+    navigate('/editor')
+  }
+
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -44,7 +49,7 @@ export default function DashboardPage() {
       <main className={s.main}>
         <div className={s.titleRow}>
           <h1 className={s.title}>Your automata</h1>
-          <button className={s.btnPrimary} onClick={() => navigate('/editor')}>
+          <button className={s.btnPrimary} onClick={handleNew}>
             <Plus size={14} /> New automaton
           </button>
         </div>
@@ -52,7 +57,7 @@ export default function DashboardPage() {
         {!loaded ? null : rows.length === 0 ? (
           <div className={s.empty}>
             <p className={s.emptyText}>No saved automata yet.</p>
-            <button className={s.btnPrimary} onClick={() => navigate('/editor')}>
+            <button className={s.btnPrimary} onClick={handleNew}>
               <Plus size={14} /> Build your first one
             </button>
           </div>

@@ -58,7 +58,10 @@ export default function EditorPage() {
   // only the network send is throttled, trailing-edge so the final
   // resting position is never dropped.
   const lastMoveSentRef  = useRef(0)
-  const pendingMoveRef   = useRef<RemoteAction | null>(null)
+  // Keyed by state id, not a single slot — a collision push can move several
+  // states in one mousemove tick, and a single slot would silently drop all
+  // but the last one from the broadcast.
+  const pendingMovesRef   = useRef<Map<string, RemoteAction>>(new Map())
   const moveThrottleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Signed-in collaborators show their initial; anonymous ones get a
@@ -83,18 +86,18 @@ export default function EditorPage() {
       if (action.type === 'MOVE_STATE') {
         const now = performance.now()
         const elapsed = now - lastMoveSentRef.current
-        pendingMoveRef.current = action
+        pendingMovesRef.current.set(action.id, action)
         if (elapsed >= 16) {
           lastMoveSentRef.current = now
-          broadcastAction(channel, clientIdRef.current, action)
-          pendingMoveRef.current = null
+          for (const a of pendingMovesRef.current.values()) broadcastAction(channel, clientIdRef.current, a)
+          pendingMovesRef.current.clear()
         } else if (!moveThrottleTimer.current) {
           moveThrottleTimer.current = setTimeout(() => {
             moveThrottleTimer.current = null
-            if (pendingMoveRef.current && channelRef.current) {
+            if (pendingMovesRef.current.size && channelRef.current) {
               lastMoveSentRef.current = performance.now()
-              broadcastAction(channelRef.current, clientIdRef.current, pendingMoveRef.current)
-              pendingMoveRef.current = null
+              for (const a of pendingMovesRef.current.values()) broadcastAction(channelRef.current, clientIdRef.current, a)
+              pendingMovesRef.current.clear()
             }
           }, 16 - elapsed)
         }
@@ -184,7 +187,7 @@ export default function EditorPage() {
     if (!docId) return
     try {
       if (!isPublic) { await setPublic(docId, true); setIsPublic(true) }
-      await navigator.clipboard.writeText(`${location.origin}/share/${docId}`)
+      await navigator.clipboard.writeText(`${location.origin}/editor/${docId}`)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch (err) {

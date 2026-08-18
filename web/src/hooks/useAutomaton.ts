@@ -168,6 +168,12 @@ function saveToStorage(data: AutomatonData) {
   } catch { /* quota exceeded or private mode */ }
 }
 
+// Called before navigating to a fresh /editor so the new session doesn't
+// inherit whatever draft the last unsaved local session left behind.
+export function clearLocalDraft() {
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+}
+
 // Numbers only the display label ("q0", "q1", ...) — ids are random
 // UUIDs (see addState/addTransition below) so concurrent collaborators
 // can never collide on one, unlike a locally-computed sequential id.
