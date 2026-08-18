@@ -38,7 +38,7 @@ export default function EditorPage() {
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
+  const [errorToast, setErrorToast] = useState<string | null>(null)
   const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string }[]>([])
   const [cursors, setCursors]   = useState<Record<string, CursorState>>({})
 
@@ -192,6 +192,8 @@ export default function EditorPage() {
       setTimeout(() => setCopied(false), 1500)
     } catch (err) {
       console.error(err)
+      setErrorToast("Couldn't create a share link — try again.")
+      setTimeout(() => setErrorToast(null), 3000)
     }
   }, [docId, isPublic])
 
@@ -216,8 +218,8 @@ export default function EditorPage() {
         if (typeof parsed.name === 'string') setName(parsed.name)
       } catch (err) {
         console.error(err)
-        setImportError('That file is not a valid automaton export.')
-        setTimeout(() => setImportError(null), 3000)
+        setErrorToast('That file is not a valid automaton export.')
+        setTimeout(() => setErrorToast(null), 3000)
       }
     }
     reader.readAsText(file)
@@ -329,7 +331,14 @@ export default function EditorPage() {
   }
 
   if (!loaded) {
-    return <div className={s.root} />
+    return (
+      <div className={s.root}>
+        <div className={s.loadingOverlay}>
+          <div className={s.spinner} />
+          <span>Loading automaton…</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -451,7 +460,7 @@ export default function EditorPage() {
         )}
       </header>
 
-      {importError && <div className={s.importToast}>{importError}</div>}
+      {errorToast && <div className={s.errorToast}>{errorToast}</div>}
 
       {/* ── Left floating toolbar — always mounted, slides out in simulate mode ── */}
       <FloatingToolbar
