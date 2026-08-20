@@ -302,9 +302,7 @@ export default function EditorPage() {
     automaton.initialId,
   )
 
-  const activeSimulator = automatonType === 'tm' ? tmSimulator : simulator
-
-  // Use FA simulator activeIds for FA mode, TM doesn't have activeIds (deterministic)
+  // FA simulator active states (TM doesn't track activeIds — it's deterministic)
   const faActiveIds = automatonType === 'fa' ? simulator.sim.activeIds : undefined
   const faActiveTransIds = automatonType === 'fa' ? simulator.sim.activeTransIds : undefined
 
@@ -375,10 +373,8 @@ export default function EditorPage() {
         initialId={automaton.initialId}
         selectedId={automaton.selectedId}
         tool={tool}
-        activeStateIds={mode === 'simulate' ? (
-          automatonType === 'tm' ? tmSimulator.sim.activeIds : simulator.sim.activeIds
-        ) : undefined}
-        activeTransIds={mode === 'simulate' ? undefined : undefined}
+        activeStateIds={mode === 'simulate' ? faActiveIds : undefined}
+        activeTransIds={mode === 'simulate' ? faActiveTransIds : undefined}
         readOnly={mode === 'simulate'}
         hideMinimap={mode === 'simulate'}
         peers={mergedPeers}
