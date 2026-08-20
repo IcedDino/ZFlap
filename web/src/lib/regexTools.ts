@@ -10,7 +10,11 @@ const DEFAULT_ALPHABET = ['a', 'b', 'c', '0', '1']
 
 class Parser {
   private i = 0
-  constructor(private readonly source: string) {}
+  private readonly source: string
+
+  constructor(source: string) {
+    this.source = source
+  }
   parse(): Node { const node = this.parseAlternation(); if (this.i < this.source.length) throw new Error(`Unexpected token '${this.source[this.i]}' at ${this.i + 1}`); return node }
   private parseAlternation(): Node { const items=[this.parseConcat()]; while(this.peek()==='|'){this.i++;items.push(this.parseConcat())} return items.length===1?items[0]:{kind:'alt',items} }
   private parseConcat(): Node { const items:Node[]=[]; while(this.i<this.source.length&&!')|'.includes(this.peek()!)){const atom=this.parseAtom();items.push(this.parseQuantifier(atom))} return items.length===0?{kind:'literal',value:''}:items.length===1?items[0]:{kind:'concat',items} }
