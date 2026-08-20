@@ -1,0 +1,60 @@
+# Build directories
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Generated documentation
+docs/html/
+docs/latex/
+
+# IDE configurations
+.idea/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+.DS_Store
+
+# Compiled binaries
+zflap
+test_*
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Generated lexer
+src/Lexer.cpp
+Lexer.cpp
+
+# Qt generated files
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.qm
+
+# Test outputs
+Testing/
+*.gcov
+*.gcda
+*.gcno
+
+# Other
+*.log
+*.autosave
+*~
+
+# Web
+web/node_modules/
+web/dist/
+web/.wrangler/
+web/.env.local

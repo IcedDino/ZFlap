@@ -44,7 +44,7 @@ export default function EditorPage() {
   const [exportOpen, setExportOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
   const [errorToast, setErrorToast] = useState<string | null>(null)
-  const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string; sessionId: string }[]>([])
+  const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string }[]>([])
   const [cursors, setCursors]   = useState<Record<string, CursorState>>({})
 
   const channelRef      = useRef<RealtimeChannel | null>(null)

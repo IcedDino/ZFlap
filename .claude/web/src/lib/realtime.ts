@@ -88,7 +88,7 @@ interface JoinOptions {
   sessionId:   string
   getPresence: () => PresenceState // called fresh on every (re)join, never a stale snapshot
   onAction:    (action: RemoteAction) => void
-  onPresence:  (peers: { id: string; color: string; initial: string; name: string; sessionId: string }[]) => void
+  onPresence:  (peers: { id: string; color: string; initial: string; name: string }[]) => void
   onCursor:    (senderId: string, cursor: CursorState) => void
 }
 
@@ -123,13 +123,13 @@ export function joinAutomatonChannel(id: string, { clientId, presenceId, session
       // one key/meta for the same browser. The stable sessionId is our final
       // browser-level identity and makes that case deterministic.
       const seenSessions = new Set<string>()
-      const peers: { id: string; color: string; initial: string; name: string; sessionId: string }[] = []
+      const peers: { id: string; color: string; initial: string; name: string }[] = []
       for (const [key, entries] of Object.entries(state)) {
         const entry = entries[0]
         if (!entry || key === presenceId || entry.sessionId === sessionId) continue
         if (seenSessions.has(entry.sessionId)) continue
         seenSessions.add(entry.sessionId)
-        peers.push({ id: key, color: entry.color, initial: entry.initial, name: entry.name, sessionId: entry.sessionId })
+        peers.push({ id: key, color: entry.color, initial: entry.initial, name: entry.name })
       }
       onPresence(peers)
     })

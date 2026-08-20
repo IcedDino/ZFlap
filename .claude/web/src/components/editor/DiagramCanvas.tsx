@@ -588,11 +588,10 @@ export default function DiagramCanvas({
           return
         }
         if (!ro && currentTool === 'select') {
-          // If this state is already part of a multi-selection, a normal
-          // left-drag should move the whole selection. This applies to mouse,
-          // touch and pen; the selection rectangle/right-drag is only the way
-          // the group is created, not the way it must be moved.
-          if (selectedIdsRef.current.size > 1 && selectedIdsRef.current.has(st.id)) {
+          // On touch, dragging a member of an existing multi-selection moves
+          // the whole group, matching the desktop right-drag workflow. A normal
+          // mouse click keeps the original single-state selection behavior.
+          if (isTouch && selectedIdsRef.current.size > 1 && selectedIdsRef.current.has(st.id)) {
             const origins = new Map(
               statesRef.current
                 .filter(state => selectedIdsRef.current.has(state.id))
