@@ -323,7 +323,7 @@ export default function EditorPage() {
   if (loadError) {
     return (
       <div className={s.root}>
-        <div className={s.smallWarning} style={{ display: 'flex' }}>
+        <div className={s.loadingOverlay}>
           <span>{loadError} <Link to="/editor">Start a new one</Link></span>
         </div>
       </div>
@@ -480,12 +480,8 @@ export default function EditorPage() {
         onStepBack={simulator.stepBack}
         onRun={simulator.run}
         onReset={simulator.reset}
+        onClose={() => setMode('edit')}
       />
-
-      {/* ── Small-screen warning ── */}
-      <div className={s.smallWarning}>
-        <span>Screen too small — please switch to full screen or a larger device.</span>
-      </div>
 
       {/* ── Bottom status bar ── */}
       <div className={s.statusbar}>

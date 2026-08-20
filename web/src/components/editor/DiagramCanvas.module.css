@@ -4,6 +4,8 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 /* ── SVG canvas ─────────────────────────────────────────────────────────────── */
@@ -15,6 +17,7 @@
   height: 100%;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
   display: block;
 }
 
@@ -38,6 +41,7 @@
   overflow: hidden;
   padding: 2px;
   user-select: none;
+  touch-action: none;
 }
 
 .minimap svg {
@@ -127,4 +131,32 @@
 }
 .popupCancel:hover {
   color: var(--text);
+}
+
+/* ── Mobile adjustments ──────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .minimap {
+    top: 58px;
+    right: 8px;
+    bottom: auto;
+    transform: scale(0.75);
+    transform-origin: top right;
+  }
+
+  .popup {
+    padding: 6px 8px;
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .popupInput {
+    width: 64px;
+    font-size: 13px;
+  }
+
+  .popupOk {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
 }

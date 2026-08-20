@@ -281,6 +281,10 @@ export default function DiagramCanvas({
   const readOnlyRef     = useRef(readOnly ?? false)
   const activeIdsRef    = useRef(activeStateIds)
 
+  // Touch interaction state
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
+  const pinchRef   = useRef<{ startDist: number; startZoom: number } | null>(null)
+
   statesRef.current     = states
   transRef.current      = transitions
   selectedRef.current   = selectedId
@@ -569,12 +573,204 @@ export default function DiagramCanvas({
       if (e.key === 'Escape') cbSelect.current(null)
     }
 
+    // ── touchstart: single-finger tap/drag · two-finger pinch · double-tap rename ──
+    function onTouchStart(e: TouchEvent) {
+      e.preventDefault()
+      const touches = e.touches
+
+      // Two-finger pinch start
+      if (touches.length === 2) {
+        dragRef.current = { mode: 'idle' }
+        const dx = touches[0].clientX - touches[1].clientX
+        const dy = touches[0].clientY - touches[1].clientY
+        pinchRef.current = {
+          startDist: Math.hypot(dx, dy),
+          startZoom: viewRef.current.zoom,
+        }
+        return
+      }
+
+      if (touches.length !== 1) return
+      const t = touches[0]
+
+      // Double-tap detection (replaces dblclick on touch)
+      const now = Date.now()
+      const last = lastTapRef.current
+      if (last && now - last.time < 300 &&
+          Math.hypot(t.clientX - last.x, t.clientY - last.y) < 25) {
+        lastTapRef.current = null
+        if (readOnlyRef.current) return
+        const w  = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+        const st = hitState(statesRef.current, w.x, w.y)
+        if (!st) return
+        const vp = toViewport(st.x, st.y, svg, viewRef.current)
+        setRenamePopup({ stateId: st.id, screenX: vp.x, screenY: vp.y })
+        setRenameDraft(st.label)
+        requestAnimationFrame(() => { renameRef.current?.select() })
+        return
+      }
+      lastTapRef.current = { time: now, x: t.clientX, y: t.clientY }
+
+      // --- below mirrors onDown logic using touch coordinates ---
+      const ro          = readOnlyRef.current
+      const currentTool = toolRef.current
+      const w           = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+
+      const tid = getTransId(e.target)
+      if (tid) {
+        if (!ro && currentTool === 'delete') { cbDelTrans.current(tid); return }
+        if (!ro && currentTool === 'select') { cbSelect.current(tid);   return }
+        return
+      }
+
+      const st = hitState(statesRef.current, w.x, w.y)
+      if (st) {
+        if (!ro && currentTool === 'delete')  { cbDelState.current(st.id);    return }
+        if (!ro && currentTool === 'final')   { cbToggle.current(st.id);     return }
+        if (!ro && currentTool === 'initial') { cbSetInitial.current(st.id); return }
+        if (!ro && currentTool === 'transition') {
+          dragRef.current = { mode: 'transition', fromId: st.id }
+          setTransDrag({ fromId: st.id, cursorX: w.x, cursorY: w.y, snapId: null })
+          return
+        }
+        if (!ro && currentTool === 'select') {
+          cbSelect.current(st.id)
+          dragRef.current = { mode: 'state', stateId: st.id, offX: w.x - st.x, offY: w.y - st.y }
+          return
+        }
+      }
+
+      if (!ro && currentTool === 'state') {
+        cbAdd.current(w.x, w.y)
+        return
+      }
+      if (ro || currentTool === 'select') {
+        if (!ro) cbSelect.current(null)
+        const v = viewRef.current
+        dragRef.current = { mode: 'pan', startPanX: v.panX, startPanY: v.panY, startSX: t.clientX, startSY: t.clientY }
+      }
+    }
+
+    // ── touchmove: pan / drag / pinch-to-zoom ──
+    function onTouchMove(e: TouchEvent) {
+      e.preventDefault()
+      const touches = e.touches
+
+      // Two-finger pinch-to-zoom
+      if (touches.length === 2 && pinchRef.current) {
+        const dx   = touches[0].clientX - touches[1].clientX
+        const dy   = touches[0].clientY - touches[1].clientY
+        const dist = Math.hypot(dx, dy)
+        const factor  = dist / pinchRef.current.startDist
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchRef.current.startZoom * factor))
+
+        const r  = svg.getBoundingClientRect()
+        const cx = (touches[0].clientX + touches[1].clientX) / 2
+        const cy = (touches[0].clientY + touches[1].clientY) / 2
+        const sx = cx - r.left
+        const sy = cy - r.top
+
+        const v  = viewRef.current
+        const wx = (sx - v.panX) / v.zoom
+        const wy = (sy - v.panY) / v.zoom
+
+        viewRef.current = { zoom: newZoom, panX: sx - wx * newZoom, panY: sy - wy * newZoom }
+        applyView()
+        setPopup(p => p.visible ? { ...p, visible: false } : p)
+        return
+      }
+
+      if (touches.length !== 1) return
+      const t = touches[0]
+
+      // Cursor broadcast
+      if (cbCursorMove.current) {
+        const now = performance.now()
+        if (now - lastCursorSentRef.current > 16) {
+          lastCursorSentRef.current = now
+          const w = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+          cbCursorMove.current(w.x, w.y)
+        }
+      }
+
+      const d = dragRef.current
+
+      if (d.mode === 'idle') return
+
+      if (d.mode === 'pan') {
+        viewRef.current = {
+          ...viewRef.current,
+          panX: d.startPanX + t.clientX - d.startSX,
+          panY: d.startPanY + t.clientY - d.startSY,
+        }
+        applyView()
+        setPopup(p => p.visible ? { ...p, visible: false } : p)
+        return
+      }
+
+      if (d.mode === 'state') {
+        const w = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+        const updates = resolveCollisions(statesRef.current, d.stateId, w.x - d.offX, w.y - d.offY)
+        for (const [id, p] of updates) cbMove.current(id, p.x, p.y)
+        return
+      }
+
+      if (d.mode === 'transition') {
+        const w    = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+        const snap = hitState(statesRef.current, w.x, w.y)
+        setTransDrag({ fromId: d.fromId, cursorX: w.x, cursorY: w.y, snapId: snap?.id ?? null })
+        setHoveredId(snap?.id ?? null)
+      }
+    }
+
+    // ── touchend: finish drag / transition ──
+    function onTouchEnd(e: TouchEvent) {
+      e.preventDefault()
+
+      // Went from 2 fingers to 1 — end pinch, idle the remaining finger
+      if (e.touches.length === 1) {
+        pinchRef.current = null
+        dragRef.current = { mode: 'idle' }
+        return
+      }
+
+      // All fingers lifted
+      pinchRef.current = null
+
+      if (e.changedTouches.length === 0) return
+      const t = e.changedTouches[0]
+
+      const d = dragRef.current
+      dragRef.current = { mode: 'idle' }
+
+      if (d.mode === 'transition') {
+        setTransDrag(null)
+        setHoveredId(null)
+        const w    = toWorld(t.clientX, t.clientY, svg, viewRef.current)
+        const snap = hitState(statesRef.current, w.x, w.y)
+        if (!snap) return
+
+        const fromSt = statesRef.current.find(s => s.id === d.fromId)!
+        const isSelf = snap.id === d.fromId
+        const midWX = isSelf ? fromSt.x              : (fromSt.x + snap.x) / 2
+        const midWY = isSelf ? fromSt.y - STATE_R - 44 : (fromSt.y + snap.y) / 2
+        const vp = toViewport(midWX, midWY, svg, viewRef.current)
+        setPopup({ visible: true, screenX: vp.x, screenY: vp.y, fromId: d.fromId, toId: snap.id })
+        setLabelDraft('')
+        requestAnimationFrame(() => labelRef.current?.focus())
+      }
+    }
+
     svg.addEventListener('mousedown', onDown)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup',   onUp)
     svg.addEventListener('dblclick', onDbl)
     svg.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('keydown', onKey)
+    svg.addEventListener('touchstart', onTouchStart, { passive: false })
+    svg.addEventListener('touchmove',  onTouchMove,  { passive: false })
+    svg.addEventListener('touchend',   onTouchEnd,   { passive: false })
+    svg.addEventListener('touchcancel', onTouchEnd,  { passive: false })
 
     return () => {
       svg.removeEventListener('mousedown', onDown)
@@ -583,6 +779,10 @@ export default function DiagramCanvas({
       svg.removeEventListener('dblclick', onDbl)
       svg.removeEventListener('wheel', onWheel)
       window.removeEventListener('keydown', onKey)
+      svg.removeEventListener('touchstart', onTouchStart)
+      svg.removeEventListener('touchmove',  onTouchMove)
+      svg.removeEventListener('touchend',   onTouchEnd)
+      svg.removeEventListener('touchcancel', onTouchEnd)
     }
   }, [])   // empty — all mutable state accessed via refs
 
@@ -869,6 +1069,23 @@ export default function DiagramCanvas({
                 mmDragRef.current = true
                 panToMinimap(e.nativeEvent)
               }}
+              onTouchStart={e => {
+                e.stopPropagation()
+                if (e.touches.length === 1) {
+                  mmDragRef.current = true
+                  const t = e.touches[0]
+                  panToMinimap({ clientX: t.clientX, clientY: t.clientY } as MouseEvent)
+                }
+              }}
+              onTouchMove={e => {
+                e.preventDefault()
+                if (mmDragRef.current && e.touches.length === 1) {
+                  const t = e.touches[0]
+                  panToMinimap({ clientX: t.clientX, clientY: t.clientY } as MouseEvent)
+                }
+              }}
+              onTouchEnd={() => { mmDragRef.current = false }}
+              onTouchCancel={() => { mmDragRef.current = false }}
             >
               {/* Transitions */}
               {transitions.map(t => {

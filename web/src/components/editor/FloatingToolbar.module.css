@@ -94,3 +94,36 @@
   opacity: 0;
   pointer-events: none;
 }
+
+/* ── Mobile: move toolbar to bottom-left ──────────────────────────────────── */
+@media (max-width: 640px) {
+  .root {
+    top: auto;
+    bottom: 60px;
+    left: 10px;
+    transform: translateY(0) translateX(0);
+    flex-direction: row;
+    padding: 4px;
+    gap: 2px;
+  }
+
+  .group {
+    flex-direction: row;
+    gap: 2px;
+  }
+
+  .divider {
+    width: 1px;
+    height: 24px;
+    margin: 0 2px;
+  }
+
+  .btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .rootHidden {
+    transform: translateY(0) translateX(-20px);
+  }
+}

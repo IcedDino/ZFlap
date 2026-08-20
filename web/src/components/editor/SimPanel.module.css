@@ -498,6 +498,16 @@
   background: rgba(250, 249, 247, 0.97);
 }
 
+/* ── Mobile close handle (hidden on desktop) ─────────────────────────────────── */
+
+.mobileClose {
+  display: none;
+}
+
+.dragHandle {
+  display: none;
+}
+
 /* ── Controls ────────────────────────────────────────────────────────────────── */
 
 .controls {
@@ -562,3 +572,64 @@
 }
 .btnStep:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text); border-color: var(--border-light); }
 .btnStep:disabled { opacity: 0.3; }
+
+/* ── Mobile: full-width bottom drawer ───────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .sidebar {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 55vh;
+    max-height: 55vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  .sidebarHidden {
+    transform: translateY(100%);
+  }
+
+  .mobileClose {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 8px 0 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .dragHandle {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 99px;
+    background: var(--border-light);
+  }
+  .mobileClose:active .dragHandle {
+    background: var(--text-dim);
+  }
+
+  .banner {
+    padding: 10px 16px 8px;
+  }
+
+  .bannerStatus {
+    font-size: 18px;
+  }
+
+  .body {
+    padding: 0 14px 10px;
+  }
+
+  .trace {
+    max-height: 150px;
+  }
+}

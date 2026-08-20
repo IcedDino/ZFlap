@@ -14,11 +14,12 @@ interface Props {
   onStepBack: () => void
   onRun:      () => void
   onReset:    () => void
+  onClose?:   () => void
 }
 
 export default function SimPanel({
   states, sigma, sim, hidden,
-  onInput, onStep, onStepBack, onRun, onReset,
+  onInput, onStep, onStepBack, onRun, onReset, onClose,
 }: Props) {
   const [speed,   setSpeed]   = useState(1)
   const [playing, setPlaying] = useState(false)
@@ -63,6 +64,13 @@ export default function SimPanel({
 
   return (
     <aside className={`${s.sidebar} ${hidden ? s.sidebarHidden : ''}`}>
+
+      {/* ── Mobile drag handle ── */}
+      {onClose && (
+        <button className={s.mobileClose} onClick={onClose} aria-label="Close simulator">
+          <span className={s.dragHandle} />
+        </button>
+      )}
 
       {/* ── Status banner ── */}
       <div className={`${s.banner} ${
