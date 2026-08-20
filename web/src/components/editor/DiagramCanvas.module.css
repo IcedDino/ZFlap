@@ -192,3 +192,7 @@
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
+
+:global(:root[data-theme='dark']) .minimap { background: rgba(26, 24, 20, 0.88); }
+:global(:root[data-theme='dark']) .popup { background: rgba(26, 24, 20, 0.96); }
+:global(:root[data-theme='dark']) .popupError { background: rgba(26, 24, 20, 0.96); }

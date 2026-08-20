@@ -94,3 +94,8 @@
   opacity: 0;
   pointer-events: none;
 }
+
+:global(:root[data-theme='dark']) .root {
+  background: var(--glass);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.24), 0 12px 40px rgba(0,0,0,0.34);
+}

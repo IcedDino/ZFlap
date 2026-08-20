@@ -1,12 +1,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import type { FAState, FATransition, FATransitionKind } from '../../hooks/useAutomaton'
+import type { FAState, FATransition, FATransitionKind, AutomatonType } from '../../hooks/useAutomaton'
 import { STATE_R, FINAL_GAP } from '../../hooks/useAutomaton'
 import type { Tool } from './FloatingToolbar'
 import s from './DiagramCanvas.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CURVE_OFF = 32    // perpendicular offset for bidirectional arcs
+const CURVE_OFF = 52    // perpendicular offset for bidirectional arcs
+const FAN_OFF   = 28    // spacing between parallel outgoing/incoming transition lanes
 const MIN_ZOOM  = 0.2
 const MAX_ZOOM  = 3.0
 const MM_W      = 168   // minimap pixel width
@@ -19,7 +20,9 @@ export interface View { panX: number; panY: number; zoom: number }
 type Drag =
   | { mode: 'idle' }
   | { mode: 'pan';   startPanX: number; startPanY: number; startSX: number; startSY: number }
-  | { mode: 'state'; stateId: string;   offX: number; offY: number }
+  | { mode: 'state'; stateId: string; offX: number; offY: number }
+  | { mode: 'group'; startX: number; startY: number; origins: Map<string, { x: number; y: number }> }
+  | { mode: 'rect-select'; startSX: number; startSY: number; currentSX: number; currentSY: number }
   | { mode: 'transition'; fromId: string }
 
 interface TransitionDragState {
@@ -87,7 +90,7 @@ function hitState(states: FAState[], wx: number, wy: number): FAState | null {
 // correction evenly between them.
 
 const PUSH_GAP        = 16   // minimum breathing room between circle edges
-const PUSH_ITERATIONS = 6
+const PUSH_ITERATIONS = 4
 const GOLDEN_ANGLE    = 2.399963229728653   // radians — spreads coincident states apart
 
 function effRadius(st: FAState): number {
@@ -100,34 +103,57 @@ function resolveCollisions(
   const pos = new Map(states.map(st => [st.id, { x: st.x, y: st.y }]))
   pos.set(draggedId, { x, y })
 
+  // Spatial hash: only compare states in nearby cells instead of every pair.
+  // The cell is intentionally a little larger than the maximum collision
+  // diameter, so dense diagrams stay close to O(n) per relaxation pass.
+  const CELL = STATE_R * 2 + PUSH_GAP + FINAL_GAP
   for (let pass = 0; pass < PUSH_ITERATIONS; pass++) {
-    for (let i = 0; i < states.length; i++) {
-      for (let j = i + 1; j < states.length; j++) {
-        const a = states[i], b = states[j]
-        const pa = pos.get(a.id)!, pb = pos.get(b.id)!
-        const minDist = effRadius(a) + effRadius(b) + PUSH_GAP
-        let dx = pb.x - pa.x, dy = pb.y - pa.y
-        let dist = Math.hypot(dx, dy)
-        if (dist >= minDist) continue
+    const grid = new Map<string, FAState[]>()
+    const cellKey = (x: number, y: number) => `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`
 
-        if (dist === 0) {
-          // Perfectly coincident (e.g. an import that stacked states) — no
-          // direction to push along, so fan them out around a circle instead
-          // of dividing by zero.
-          const angle = j * GOLDEN_ANGLE
-          dx = Math.cos(angle); dy = Math.sin(angle); dist = 1
-        }
-        const [nx, ny] = [dx / dist, dy / dist]
-        const overlap = minDist - dist
+    for (const st of states) {
+      const p = pos.get(st.id)!
+      const key = cellKey(p.x, p.y)
+      const bucket = grid.get(key)
+      if (bucket) bucket.push(st)
+      else grid.set(key, [st])
+    }
 
-        const aPinned = a.id === draggedId, bPinned = b.id === draggedId
-        if (aPinned) {
-          pb.x += nx * overlap; pb.y += ny * overlap
-        } else if (bPinned) {
-          pa.x -= nx * overlap; pa.y -= ny * overlap
-        } else {
-          pa.x -= nx * overlap / 2; pa.y -= ny * overlap / 2
-          pb.x += nx * overlap / 2; pb.y += ny * overlap / 2
+    for (const a of states) {
+      const pa = pos.get(a.id)!
+      const cellX = Math.floor(pa.x / CELL)
+      const cellY = Math.floor(pa.y / CELL)
+
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const bucket = grid.get(`${cellX + ox},${cellY + oy}`)
+          if (!bucket) continue
+
+          for (const b of bucket) {
+            if (a.id >= b.id) continue
+            const pb = pos.get(b.id)!
+            const minDist = effRadius(a) + effRadius(b) + PUSH_GAP
+            let dx = pb.x - pa.x, dy = pb.y - pa.y
+            let dist = Math.hypot(dx, dy)
+            if (dist >= minDist) continue
+
+            if (dist === 0) {
+              const angle = (b.id.length % 31) * GOLDEN_ANGLE
+              dx = Math.cos(angle); dy = Math.sin(angle); dist = 1
+            }
+            const nx = dx / dist, ny = dy / dist
+            const overlap = minDist - dist
+            const aPinned = a.id === draggedId, bPinned = b.id === draggedId
+
+            if (aPinned) {
+              pb.x += nx * overlap; pb.y += ny * overlap
+            } else if (bPinned) {
+              pa.x -= nx * overlap; pa.y -= ny * overlap
+            } else {
+              pa.x -= nx * overlap / 2; pa.y -= ny * overlap / 2
+              pb.x += nx * overlap / 2; pb.y += ny * overlap / 2
+            }
+          }
         }
       }
     }
@@ -150,7 +176,8 @@ interface TransPath { d: string; lx: number; ly: number }
 
 function computeTransPath(
   from: FAState, to: FAState,
-  isTwin: boolean, isForward: boolean
+  isTwin: boolean, isForward: boolean,
+  fanIndex = 0, fanCount = 1
 ): TransPath {
   // Self-loop
   if (from.id === to.id) {
@@ -166,18 +193,29 @@ function computeTransPath(
   const dx = to.x - from.x, dy = to.y - from.y
   const [ux, uy] = norm(dx, dy)
   const [px, py] = [-uy, ux]   // perpendicular
+  const hasFan = fanCount > 1
+  const fanOffset = hasFan ? (fanIndex - (fanCount - 1) / 2) * FAN_OFF : 0
 
-  if (!isTwin) {
+  if (!isTwin && !hasFan) {
     // Straight
     const x1 = from.x + ux * STATE_R, y1 = from.y + uy * STATE_R
     const x2 = to.x   - ux * STATE_R, y2 = to.y   - uy * STATE_R
     return { d: `M ${x1},${y1} L ${x2},${y2}`, lx: (x1+x2)/2 + px*(-14), ly: (y1+y2)/2 + py*(-14) }
   }
 
-  // Quadratic bezier — curve to one side
-  const sign = isForward ? 1 : -1
-  const cpx = (from.x + to.x) / 2 + px * CURVE_OFF * sign
-  const cpy = (from.y + to.y) / 2 + py * CURVE_OFF * sign
+  // Quadratic bezier. Besides reciprocal transitions, fan out all edges
+  // sharing the same source so 2–4 outgoing transitions cannot sit on the
+  // same visual lane. Reciprocal pairs keep their opposite-side routing.
+  // The perpendicular vector changes sign when the direction is reversed, so
+  // compute it from one canonical direction and then choose opposite bends.
+  const canonicalFrom = isForward ? from : to
+  const canonicalTo   = isForward ? to : from
+  const [cux, cuy] = norm(canonicalTo.x - canonicalFrom.x, canonicalTo.y - canonicalFrom.y)
+  const [cpxUnit, cpyUnit] = [-cuy, cux]
+  const bendSign = isTwin ? (isForward ? 1 : -1) : 1
+  const baseCurve = isTwin ? CURVE_OFF : 0
+  const cpx = (from.x + to.x) / 2 + cpxUnit * (baseCurve * bendSign + fanOffset)
+  const cpy = (from.y + to.y) / 2 + cpyUnit * (baseCurve * bendSign + fanOffset)
 
   const [fd0, fd1] = norm(cpx - from.x, cpy - from.y)
   const [td0, td1] = norm(to.x - cpx,   to.y - cpy)
@@ -189,10 +227,11 @@ function computeTransPath(
   const bx = 0.25*x1 + 0.5*cpx + 0.25*x2
   const by = 0.25*y1 + 0.5*cpy + 0.25*y2
 
+  const labelOffset = baseCurve * bendSign * 0.28 + fanOffset * 0.42
   return {
     d: `M ${x1},${y1} Q ${cpx},${cpy} ${x2},${y2}`,
-    lx: bx + px * CURVE_OFF * sign * 0.28,
-    ly: by + py * CURVE_OFF * sign * 0.28,
+    lx: bx + cpxUnit * labelOffset,
+    ly: by + cpyUnit * labelOffset,
   }
 }
 
@@ -212,13 +251,14 @@ interface Props {
   initialId:   string | null
   selectedId:  string | null
   tool:        Tool
+  automatonType?: AutomatonType
   activeStateIds?:  Set<string>
   activeTransIds?:  Set<string>
   readOnly?:        boolean
   hideMinimap?:     boolean
   peers?:           PeerCursor[]
   onAddState:         (x: number, y: number) => void
-  onMoveState:        (id: string, x: number, y: number) => void
+  onMoveStates:       (updates: { id: string; x: number; y: number }[]) => void
   onDeleteState:      (id: string) => void
   onToggleFinal:      (id: string) => void
   onRenameState:      (id: string, label: string) => void
@@ -235,9 +275,9 @@ interface Props {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function DiagramCanvas({
-  states, transitions, initialId, selectedId, tool,
+  states, transitions, initialId, selectedId, tool, automatonType = 'dfa',
   activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
-  onAddState, onMoveState, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
+  onAddState, onMoveStates, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
   onAddTransition, onEditTransition, onDeleteTransition, onSelect, onDeleteSelected,
   onViewChange, onCursorMove,
 }: Props) {
@@ -265,6 +305,7 @@ export default function DiagramCanvas({
   const mmRectRef = useRef<SVGRectElement>(null)
   const mmSvgRef  = useRef<SVGSVGElement>(null)
   const mmDragRef = useRef(false)
+  const suppressContextMenuRef = useRef(false)
 
   // Mirrors of props as refs so native handlers always read current values
   // without needing to be in the effect dependency array
@@ -273,7 +314,7 @@ export default function DiagramCanvas({
   const selectedRef   = useRef(selectedId)
   const toolRef       = useRef(tool)
   const cbAdd         = useRef(onAddState)
-  const cbMove        = useRef(onMoveState)
+  const cbMoveStates   = useRef(onMoveStates)
   const cbDelState    = useRef(onDeleteState)
   const cbToggle      = useRef(onToggleFinal)
   const cbRename      = useRef(onRenameState)
@@ -291,7 +332,7 @@ export default function DiagramCanvas({
   selectedRef.current   = selectedId
   toolRef.current       = tool
   cbAdd.current         = onAddState
-  cbMove.current        = onMoveState
+  cbMoveStates.current   = onMoveStates
   cbDelState.current    = onDeleteState
   cbToggle.current      = onToggleFinal
   cbRename.current      = onRenameState
@@ -313,6 +354,16 @@ export default function DiagramCanvas({
   const [rangeStartDraft, setRangeStartDraft] = useState('')
   const [rangeEndDraft, setRangeEndDraft] = useState('')
   const [rangeError, setRangeError] = useState('')
+  const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const selectedIdsRef = useRef<Set<string>>(new Set())
+
+  // Editing popups belong to Select mode. Switching to another editing tool
+  // must close any state/transition editor that is still open.
+  useEffect(() => {
+    if (tool === 'select') return
+    setPopup(p => p.visible ? { ...p, visible: false } : p)
+    setRenamePopup(null)
+  }, [tool])
 
   interface RenamePopup { stateId: string; screenX: number; screenY: number }
   const [renamePopup, setRenamePopup] = useState<RenamePopup | null>(null)
@@ -409,12 +460,56 @@ export default function DiagramCanvas({
 
     // ── mousedown ──
     function onDown(e: MouseEvent) {
-      if (e.button !== 0) return
-      e.preventDefault()
-
       const ro          = readOnlyRef.current
       const currentTool = toolRef.current
       const w           = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+
+      // In Select mode, right-drag behaves like a desktop selection marquee.
+      // Dragging from inside the current selection moves that selected group;
+      // dragging elsewhere creates a rectangle and selects every state it
+      // intersects on release. Other tools keep the existing right-drag group
+      // move behaviour for backwards compatibility.
+      if (e.button === 2 && !ro) {
+        e.preventDefault()
+        suppressContextMenuRef.current = true
+        if (statesRef.current.length === 0) return
+
+        const hit = hitState(statesRef.current, w.x, w.y)
+        if (currentTool === 'select' && hit && selectedIdsRef.current.has(hit.id)) {
+          const selected = new Set(selectedIdsRef.current)
+          const origins = new Map(
+            statesRef.current
+              .filter(st => selected.has(st.id))
+              .map(st => [st.id, { x: st.x, y: st.y }])
+          )
+          if (origins.size > 0) {
+            dragRef.current = { mode: 'group', startX: w.x, startY: w.y, origins }
+            return
+          }
+        }
+
+        if (currentTool === 'select') {
+          setPopup(p => p.visible ? { ...p, visible: false } : p)
+          setRenamePopup(null)
+          const r = svg.getBoundingClientRect()
+          const sx = e.clientX - r.left
+          const sy = e.clientY - r.top
+          dragRef.current = { mode: 'rect-select', startSX: sx, startSY: sy, currentSX: sx, currentSY: sy }
+          setSelectionRect({ x: sx, y: sy, width: 0, height: 0 })
+          return
+        }
+
+        dragRef.current = {
+          mode: 'group',
+          startX: w.x,
+          startY: w.y,
+          origins: new Map(statesRef.current.map(st => [st.id, { x: st.x, y: st.y }])),
+        }
+        return
+      }
+
+      if (e.button !== 0) return
+      e.preventDefault()
 
       // Did we click a transition hit-zone?
       const tid = getTransId(e.target)
@@ -436,6 +531,7 @@ export default function DiagramCanvas({
           return
         }
         if (!ro && currentTool === 'select') {
+          selectedIdsRef.current = new Set([st.id])
           cbSelect.current(st.id)
           dragRef.current = { mode: 'state', stateId: st.id, offX: w.x - st.x, offY: w.y - st.y }
           return
@@ -449,7 +545,10 @@ export default function DiagramCanvas({
         return
       }
       if (ro || currentTool === 'select') {
-        if (!ro) cbSelect.current(null)
+        if (!ro) {
+          selectedIdsRef.current.clear()
+          cbSelect.current(null)
+        }
         const v = viewRef.current
         dragRef.current = { mode: 'pan', startPanX: v.panX, startPanY: v.panY, startSX: e.clientX, startSY: e.clientY }
       }
@@ -491,7 +590,26 @@ export default function DiagramCanvas({
       if (d.mode === 'state') {
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
         const updates = resolveCollisions(statesRef.current, d.stateId, w.x - d.offX, w.y - d.offY)
-        for (const [id, p] of updates) cbMove.current(id, p.x, p.y)
+        cbMoveStates.current([...updates].map(([id, p]) => ({ id, x: p.x, y: p.y })))
+        return
+      }
+
+      if (d.mode === 'rect-select') {
+        const r = svg.getBoundingClientRect()
+        const sx = e.clientX - r.left
+        const sy = e.clientY - r.top
+        dragRef.current = { ...d, currentSX: sx, currentSY: sy }
+        const x = Math.min(d.startSX, sx)
+        const y = Math.min(d.startSY, sy)
+        setSelectionRect({ x, y, width: Math.abs(sx - d.startSX), height: Math.abs(sy - d.startSY) })
+        return
+      }
+
+      if (d.mode === 'group') {
+        const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+        const dx = w.x - d.startX
+        const dy = w.y - d.startY
+        cbMoveStates.current([...d.origins].map(([id, p]) => ({ id, x: p.x + dx, y: p.y + dy })))
         return
       }
 
@@ -508,6 +626,34 @@ export default function DiagramCanvas({
       mmDragRef.current = false
       const d = dragRef.current
       dragRef.current = { mode: 'idle' }
+
+      if (d.mode === 'rect-select') {
+        const r = svg.getBoundingClientRect()
+        const ex = e.clientX - r.left
+        const ey = e.clientY - r.top
+        const x1 = Math.min(d.startSX, ex)
+        const y1 = Math.min(d.startSY, ey)
+        const x2 = Math.max(d.startSX, ex)
+        const y2 = Math.max(d.startSY, ey)
+        const z = viewRef.current.zoom
+        const panX = viewRef.current.panX
+        const panY = viewRef.current.panY
+        const ids = new Set(
+          statesRef.current
+            .filter(st => {
+              const sx = st.x * z + panX
+              const sy = st.y * z + panY
+              const radius = (STATE_R + 4) * z
+              return sx + radius >= x1 && sx - radius <= x2 && sy + radius >= y1 && sy - radius <= y2
+            })
+            .map(st => st.id)
+        )
+        selectedIdsRef.current = ids
+        const first = ids.values().next().value as string | undefined
+        cbSelect.current(first ?? null)
+        setSelectionRect(null)
+        return
+      }
 
       if (d.mode === 'transition') {
         setTransDrag(null)
@@ -539,6 +685,13 @@ export default function DiagramCanvas({
     }
 
     // ── dblclick: edit transition or rename state ──
+    function onContextMenu(e: MouseEvent) {
+      if (suppressContextMenuRef.current) {
+        e.preventDefault()
+        suppressContextMenuRef.current = false
+      }
+    }
+
     function onDbl(e: MouseEvent) {
       if (readOnlyRef.current || toolRef.current !== 'select') return
 
@@ -633,6 +786,7 @@ export default function DiagramCanvas({
     }
 
     svg.addEventListener('mousedown', onDown)
+    svg.addEventListener('contextmenu', onContextMenu)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup',   onUp)
     svg.addEventListener('dblclick', onDbl)
@@ -641,6 +795,7 @@ export default function DiagramCanvas({
 
     return () => {
       svg.removeEventListener('mousedown', onDown)
+      svg.removeEventListener('contextmenu', onContextMenu)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup',   onUp)
       svg.removeEventListener('dblclick', onDbl)
@@ -722,20 +877,17 @@ export default function DiagramCanvas({
 
   // ── Twin detection (bidirectional pairs) ─────────────────────────────────────
 
-  const twinSet = new Set<string>()
-  for (const t of transitions) {
-    if (transitions.some(r => r.fromId === t.toId && r.toId === t.fromId)) {
-      twinSet.add(t.id)
-    }
-  }
+  const stateById = new Map(states.map(st => [st.id, st]))
+  const reverseTransitionKeys = new Set(transitions.map(t => `${t.toId}\0${t.fromId}`))
+  const twinSet = new Set(transitions.filter(t => reverseTransitionKeys.has(`${t.fromId}\0${t.toId}`)).map(t => t.id))
 
   // ── Transition preview geometry ───────────────────────────────────────────────
 
   const previewPath = (() => {
     if (!transDrag) return null
-    const from = states.find(s => s.id === transDrag.fromId)
+    const from = stateById.get(transDrag.fromId)
     if (!from) return null
-    const snap = transDrag.snapId ? states.find(s => s.id === transDrag.snapId) : null
+    const snap = transDrag.snapId ? stateById.get(transDrag.snapId) : null
 
     if (snap && snap.id === from.id) {
       // Self-loop preview
@@ -754,6 +906,26 @@ export default function DiagramCanvas({
   })()
 
   // ── Render ────────────────────────────────────────────────────────────────────
+  // Fan transitions that share a source into deterministic visual lanes.
+  // Transitions to the same target are already merged in useAutomaton, so each
+  // entry here represents a distinct visual edge.
+  const outgoingGroups = new Map<string, FATransition[]>()
+  for (const t of transitions) {
+    if (t.fromId === t.toId) continue
+    const group = outgoingGroups.get(t.fromId)
+    if (group) group.push(t)
+    else outgoingGroups.set(t.fromId, [t])
+  }
+  for (const group of outgoingGroups.values()) {
+    group.sort((a, b) => {
+      const ta = stateById.get(a.toId), tb = stateById.get(b.toId)
+      if (!ta || !tb) return a.toId.localeCompare(b.toId)
+      const sa = stateById.get(a.fromId)!
+      const aa = Math.atan2(ta.y - sa.y, ta.x - sa.x)
+      const ab = Math.atan2(tb.y - sa.y, tb.x - sa.x)
+      return aa - ab || a.toId.localeCompare(b.toId)
+    })
+  }
 
   return (
     <div className={s.root}>
@@ -781,15 +953,17 @@ export default function DiagramCanvas({
 
           {/* ── Transitions ── */}
           {transitions.map(t => {
-            const from = states.find(s => s.id === t.fromId)
-            const to   = states.find(s => s.id === t.toId)
+            const from = stateById.get(t.fromId)
+            const to   = stateById.get(t.toId)
             if (!from || !to) return null
 
             const isSel    = t.id === selectedId
             const isActive = activeTransIds?.has(t.id) ?? false
             const isTwin   = twinSet.has(t.id)
             const isFwd    = !isTwin || t.fromId < t.toId
-            const { d, lx, ly } = computeTransPath(from, to, isTwin, isFwd)
+            const outgoing = outgoingGroups.get(t.fromId) ?? []
+            const fanIndex = Math.max(0, outgoing.findIndex(edge => edge.id === t.id))
+            const { d, lx, ly } = computeTransPath(from, to, isTwin, isFwd, fanIndex, outgoing.length)
 
             const stroke    = isActive ? '#16A34A' : isSel ? '#F97316' : '#C8C3BA'
             const strokeW   = isActive ? 2.5       : isSel ? 2         : 1.5
@@ -827,7 +1001,9 @@ export default function DiagramCanvas({
                   pointerEvents="none"
                   style={{ userSelect: 'none' }}
                 >
-                  {t.label}
+                  {t.label.split(',').map((token, index) => (
+                    <tspan key={`${t.id}-${index}`} x={lx} dy={index === 0 ? `${-(t.label.split(',').length - 1) * 7}px` : '14px'}>{token.trim()}</tspan>
+                  ))}
                 </text>
               </g>
             )
@@ -847,6 +1023,7 @@ export default function DiagramCanvas({
           {/* ── States ── */}
           {states.map(st => {
             const isSel      = st.id === selectedId
+            const isMultiSel  = selectedIdsRef.current.has(st.id)
             const isInit     = st.id === initialId
             const isHov      = st.id === hoveredId
             const isDragSrc  = transDrag?.fromId === st.id
@@ -854,10 +1031,10 @@ export default function DiagramCanvas({
             const isActive   = activeStateIds?.has(st.id) ?? false
             const peerHere   = peers?.find(p => p.selectedId === st.id)
 
-            const fill   = isActive ? '#F0FDF4' : isSel ? '#FFF7ED' : '#FFFFFF'
-            const stroke = isActive ? '#16A34A' : isSel ? '#F97316' : (isHov || isDragSnap) ? '#C8C3BA' : '#E6E2DA'
-            const sw     = isActive ? 2.5 : isSel ? 2 : 1.5
-            const tFill  = isActive ? '#15803D' : isSel ? '#EA6C0A' : '#1A1814'
+            const fill   = isActive ? '#F0FDF4' : isMultiSel ? '#FFF7ED' : '#FFFFFF'
+            const stroke = isActive ? '#16A34A' : isMultiSel ? '#F97316' : (isHov || isDragSnap) ? '#C8C3BA' : '#E6E2DA'
+            const sw     = isActive ? 2.5 : isMultiSel ? 2 : 1.5
+            const tFill  = isActive ? '#15803D' : isMultiSel ? '#EA6C0A' : '#1A1814'
 
             // The state being dragged by this client stays glued to the
             // cursor with zero latency; every other state (including ones
@@ -903,7 +1080,7 @@ export default function DiagramCanvas({
                 {st.isFinal && (
                   <circle r={STATE_R + FINAL_GAP}
                     fill="none"
-                    stroke={isSel ? '#F97316' : '#E6E2DA'}
+                    stroke={isMultiSel ? '#F97316' : '#E6E2DA'}
                     strokeWidth={sw}
                   />
                 )}
@@ -920,12 +1097,12 @@ export default function DiagramCanvas({
                     <line
                       x1={-STATE_R - 24} y1={0}
                       x2={-STATE_R - 2}  y2={0}
-                      stroke={isSel ? '#F97316' : '#AAA49A'} strokeWidth={1.5}
+                      stroke={isMultiSel ? '#F97316' : '#AAA49A'} strokeWidth={1.5}
                     />
                     <path
                       d={`M${-STATE_R-9},${-5} L${-STATE_R-1},${0} L${-STATE_R-9},${5}`}
                       fill="none"
-                      stroke={isSel ? '#F97316' : '#AAA49A'}
+                      stroke={isMultiSel ? '#F97316' : '#AAA49A'}
                       strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
                     />
                   </g>
@@ -963,6 +1140,20 @@ export default function DiagramCanvas({
           ))}
 
         </g>
+
+        {selectionRect && (
+          <rect
+            x={selectionRect.x}
+            y={selectionRect.y}
+            width={selectionRect.width}
+            height={selectionRect.height}
+            fill="rgba(249,115,22,0.08)"
+            stroke="#F97316"
+            strokeWidth={1}
+            strokeDasharray="5 4"
+            pointerEvents="none"
+          />
+        )}
       </svg>
 
       {/* ── Minimap ── */}
@@ -987,8 +1178,8 @@ export default function DiagramCanvas({
             >
               {/* Transitions */}
               {transitions.map(t => {
-                const f = states.find(st => st.id === t.fromId)
-                const o = states.find(st => st.id === t.toId)
+                const f = stateById.get(t.fromId)
+                const o = stateById.get(t.toId)
                 if (!f || !o) return null
                 if (f.id === o.id) return null
                 return <line key={t.id}
@@ -1036,14 +1227,21 @@ export default function DiagramCanvas({
               ref={labelRef}
               className={s.popupInput}
               value={labelDraft}
-              onChange={e => setLabelDraft(e.target.value)}
+              onChange={e => {
+                const next = e.target.value
+                if (!automatonType.startsWith('tm-') && labelDraft.length === 1 && next.length === 2 && !next.includes(',')) {
+                  setLabelDraft(`${labelDraft},${next[1]}`)
+                } else {
+                  setLabelDraft(next)
+                }
+              }}
               onKeyDown={e => {
                 if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
                 if (e.key === 'Escape') { e.preventDefault(); cancelLabel()  }
                 e.stopPropagation()
               }}
-              placeholder="ε"
-              maxLength={8}
+              placeholder={automatonType.startsWith('tm-') ? '0/1,R' : 'a'}
+              maxLength={automatonType.startsWith('tm-') ? 32 : 64}
               spellCheck={false}
             />
           ) : (
@@ -1080,11 +1278,13 @@ export default function DiagramCanvas({
               />
             </>
           )}
-          <button
-            className={`${s.popupRangeButton} ${rangeMode ? s.popupRangeButtonActive : ''}`}
-            onClick={toggleRangeMode}
-            type="button"
-          >Range</button>
+          {!automatonType.startsWith('tm-') && (
+            <button
+              className={`${s.popupRangeButton} ${rangeMode ? s.popupRangeButtonActive : ''}`}
+              onClick={toggleRangeMode}
+              type="button"
+            >Range</button>
+          )}
           <button className={s.popupOk} onClick={confirmLabel}>
             {popup.editingTransitionId ? 'Save' : 'Add'}
           </button>

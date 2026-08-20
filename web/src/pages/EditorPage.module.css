@@ -439,3 +439,8 @@
   opacity: 0.4;
   cursor: default;
 }
+
+:global(:root[data-theme='dark']) .topbar { background: var(--glass); }
+:global(:root[data-theme='dark']) .statusbar { background: var(--glass); }
+:global(:root[data-theme='dark']) .exportMenu { background: rgba(26, 24, 20, 0.98); }
+:global(:root[data-theme='dark']) .smallWarning { background: rgba(17, 16, 14, 0.97); }

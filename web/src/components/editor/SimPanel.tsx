@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { StepForward, StepBack, Play, Pause, RotateCcw } from 'lucide-react'
-import type { FAState } from '../../hooks/useAutomaton'
+import type { FAState, AutomatonType } from '../../hooks/useAutomaton'
 import type { SimState } from '../../hooks/useSimulator'
 import s from './SimPanel.module.css'
 
@@ -8,8 +8,10 @@ interface Props {
   states:     FAState[]
   sigma:      Set<string>
   sim:        SimState
+  automatonType: AutomatonType
   hidden?:    boolean
   onInput:    (v: string) => void
+  onRegex:    (v: string) => void
   onStep:     () => void
   onStepBack: () => void
   onRun:      () => void
@@ -17,8 +19,8 @@ interface Props {
 }
 
 export default function SimPanel({
-  states, sigma, sim, hidden,
-  onInput, onStep, onStepBack, onRun, onReset,
+  states, sigma, sim, automatonType, hidden,
+  onInput, onRegex, onStep, onStepBack, onRun, onReset,
 }: Props) {
   const [speed,   setSpeed]   = useState(1)
   const [playing, setPlaying] = useState(false)
@@ -82,22 +84,48 @@ export default function SimPanel({
       {/* ── Scrollable body ── */}
       <div className={s.body}>
 
-        {/* Input */}
-        <div className={s.section}>
-          <label className={s.sectionLabel}>Input string</label>
-          <input
-            className={s.inputField}
-            value={sim.input}
-            onChange={e => { setPlaying(false); onInput(e.target.value) }}
-            placeholder="Type a string to test…"
-            spellCheck={false}
-            tabIndex={hidden ? -1 : 0}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); onRun() }
-              e.stopPropagation()
-            }}
-          />
-        </div>
+        {/* Input / regex */}
+        {automatonType === 'regex' ? (
+          <>
+            <div className={s.section}>
+              <label className={s.sectionLabel}>Regular expression</label>
+              <input
+                className={s.inputField}
+                value={sim.regex}
+                onChange={e => { setPlaying(false); onRegex(e.target.value) }}
+                placeholder="e.g. (a|b)*abb"
+                spellCheck={false}
+                tabIndex={hidden ? -1 : 0}
+              />
+              {sim.regexError && <p className={s.deadNote}>{sim.regexError}</p>}
+            </div>
+            <div className={s.section}>
+              <label className={s.sectionLabel}>Input string</label>
+              <input
+                className={s.inputField}
+                value={sim.input}
+                onChange={e => { setPlaying(false); onInput(e.target.value) }}
+                placeholder="Type a string to test…"
+                spellCheck={false}
+                tabIndex={hidden ? -1 : 0}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRun() }; e.stopPropagation() }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className={s.section}>
+            <label className={s.sectionLabel}>{automatonType.startsWith('tm-') ? 'Initial tape input' : 'Input string'}</label>
+            <input
+              className={s.inputField}
+              value={sim.input}
+              onChange={e => { setPlaying(false); onInput(e.target.value) }}
+              placeholder="Type a string to test…"
+              spellCheck={false}
+              tabIndex={hidden ? -1 : 0}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRun() }; e.stopPropagation() }}
+            />
+          </div>
+        )}
 
         {/* Active states + tape */}
         {sim.status !== 'idle' && states.length > 0 && (
@@ -156,6 +184,27 @@ export default function SimPanel({
                 <div className={s.tapePos}>{sim.head} / {sim.input.length}</div>
               </div>
             )}
+          </div>
+        )}
+
+        {automatonType.startsWith('tm-') && sim.status !== 'idle' && (
+          <div className={s.section}>
+            <label className={s.sectionLabel}>Tape</label>
+            <div className={s.tapeScroll}>
+              <div className={s.tape}>
+                {(() => {
+                  const cells = sim.tape.length ? sim.tape : ['_']
+                  const headIndex = sim.tmHead - sim.tmTapeOrigin
+                  const start = Math.max(0, Math.min(headIndex - 6, cells.length - 12))
+                  const end = Math.min(cells.length, start + 12)
+                  return Array.from({ length: Math.max(1, end - start) }, (_, offset) => {
+                    const i = start + offset
+                    return <div key={i} className={`${s.cell} ${i === headIndex ? s.cellHead : s.cellFuture}`}>{cells[i] ?? '_'}</div>
+                  })
+                })()}
+              </div>
+            </div>
+            <p className={s.idleNote}>TM transitions use <code>read/write,move</code>, for example <code>0/1,R</code> or <code>1/1,L</code>. Use <code>_</code> for blank.</p>
           </div>
         )}
 

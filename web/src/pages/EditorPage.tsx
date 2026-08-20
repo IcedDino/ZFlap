@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Download, Upload, Save, Check, Pencil, Play, Share2, User, ChevronDown, FileJson, Image as ImageIcon, FileText } from 'lucide-react'
+import { Download, Upload, Save, Check, Pencil, Play, Share2, User, ChevronDown, FileJson, Image as ImageIcon, FileText, Moon, Sun } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
 import DiagramCanvas from '../components/editor/DiagramCanvas'
@@ -8,9 +8,10 @@ import type { View } from '../components/editor/DiagramCanvas'
 import FloatingToolbar from '../components/editor/FloatingToolbar'
 import type { Tool } from '../components/editor/FloatingToolbar'
 import SimPanel from '../components/editor/SimPanel'
+import RegexWorkspace from '../components/editor/RegexWorkspace'
 import AuthModal from '../components/AuthModal'
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { useAutomaton, classifyAutomaton } from '../hooks/useAutomaton'
+import { useAutomaton, classifyAutomaton, detectAutomatonType } from '../hooks/useAutomaton'
 import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
@@ -30,6 +31,8 @@ export default function EditorPage() {
   const [tool, setTool] = useState<Tool>('select')
   const [name, setName] = useState('Untitled automaton')
   const [mode, setMode] = useState<Mode>('edit')
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('zflap-theme') === 'dark')
+  const [newType] = useState(() => localStorage.getItem('zflap-new-type') as import('../hooks/useAutomaton').AutomatonType | null)
 
   const [docId, setDocId]       = useState<string | null>(null)
   const [loaded, setLoaded]     = useState(!id)
@@ -52,7 +55,7 @@ export default function EditorPage() {
   const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
   const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
 
-  // MOVE_STATE fires on every mousemove during a drag (dozens/sec) —
+  // MOVE_STATE / MOVE_STATES fire on every mousemove during a drag (dozens/sec) —
   // broadcasting each one unthrottled makes channel.send() (a real
   // network op, occasionally an actual REST fallback fetch) fight the
   // drag for CPU/socket time and lags the person doing the dragging,
@@ -85,10 +88,11 @@ export default function EditorPage() {
   function handleLocalAction(action: RemoteAction) {
     if (channelRef.current) {
       const channel = channelRef.current
-      if (action.type === 'MOVE_STATE') {
+      if (action.type === 'MOVE_STATE' || action.type === 'MOVE_STATES') {
         const now = performance.now()
         const elapsed = now - lastMoveSentRef.current
-        pendingMovesRef.current.set(action.id, action)
+        const moveKey = action.type === 'MOVE_STATE' ? action.id : '__bulk__'
+        pendingMovesRef.current.set(moveKey, action)
         if (elapsed >= 16) {
           lastMoveSentRef.current = now
           for (const a of pendingMovesRef.current.values()) broadcastAction(channel, clientIdRef.current, a)
@@ -134,10 +138,17 @@ export default function EditorPage() {
   }
 
   const automaton      = useAutomaton({ persistLocal: !id, onAction: handleLocalAction })
+
+  useEffect(() => {
+    if (!id && newType) {
+      automaton.setAutomatonType(newType)
+      localStorage.removeItem('zflap-new-type')
+    }
+  }, [id, newType]) // eslint-disable-line react-hooks/exhaustive-deps
   const editorViewRef  = useRef<View>({ panX: 0, panY: 0, zoom: 1 })
 
   const currentSnapshot = JSON.stringify({
-    name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId,
+    name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex,
   })
   const isSaved = savedSnapshot !== null && savedSnapshot === currentSnapshot
 
@@ -149,12 +160,12 @@ export default function EditorPage() {
     getById(id)
       .then(row => {
         if (!row) { setLoadError("This automaton doesn't exist or you don't have access to it."); setLoaded(true); return }
-        automaton.load({ states: row.data.states, transitions: row.data.transitions, initialId: row.data.initialId })
+        automaton.load({ states: row.data.states, transitions: row.data.transitions, initialId: row.data.initialId, automatonType: row.data.automatonType ?? 'dfa', regex: row.data.regex ?? '' })
         setName(row.name)
         setIsPublic(row.is_public)
         setDocId(row.id)
         setSavedSnapshot(JSON.stringify({
-          name: row.name, states: row.data.states, transitions: row.data.transitions, initialId: row.data.initialId,
+          name: row.name, states: row.data.states, transitions: row.data.transitions, initialId: row.data.initialId, automatonType: row.data.automatonType ?? 'dfa', regex: row.data.regex ?? '',
         }))
         setLoaded(true)
       })
@@ -168,7 +179,7 @@ export default function EditorPage() {
     if (!docId && !user) { setAuthOpen(true); return }
     setSaving(true)
     try {
-      const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+      const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
       if (docId) {
         await update(docId, { name, data: payload })
       } else {
@@ -196,7 +207,7 @@ export default function EditorPage() {
           setAuthOpen(true)
           return
         }
-        const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+        const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
         const row = await create(name, payload)
         shareId = row.id
         setDocId(row.id)
@@ -214,7 +225,7 @@ export default function EditorPage() {
     }
   }, [docId, isPublic, user, name, automaton.states, automaton.transitions, automaton.initialId, navigate])
 
-  const exportModel = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+  const exportModel = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
 
   const runExport = useCallback(async (kind: 'json' | 'png' | 'pdf') => {
     setExportOpen(false)
@@ -235,7 +246,7 @@ export default function EditorPage() {
       try {
         const parsed = JSON.parse(reader.result as string)
         if (!Array.isArray(parsed.states) || !Array.isArray(parsed.transitions)) throw new Error('Invalid automaton file')
-        automaton.load({ states: parsed.states, transitions: parsed.transitions, initialId: parsed.initialId ?? null })
+        automaton.load({ states: parsed.states, transitions: parsed.transitions, initialId: parsed.initialId ?? null, automatonType: parsed.automatonType ?? 'dfa', regex: parsed.regex ?? '' })
         if (typeof parsed.name === 'string') setName(parsed.name)
       } catch (err) {
         console.error(err)
@@ -316,21 +327,58 @@ export default function EditorPage() {
     return () => document.removeEventListener('mousedown', close)
   }, [exportOpen])
 
+  const detectedMachineType = detectAutomatonType(
+    automaton.states,
+    automaton.transitions,
+    automaton.initialId,
+    automaton.automatonType,
+  )
+
   const simulator = useSimulator(
     automaton.states,
     automaton.transitions,
     automaton.initialId,
+    detectedMachineType,
+    automaton.regex,
   )
 
   useEffect(() => {
     if (mode === 'simulate') simulator.reset()
   }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { label: typeLabel, color: typeColor } = classifyAutomaton(
-    automaton.states, automaton.transitions, automaton.initialId
-  )
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
+    localStorage.setItem('zflap-theme', darkMode ? 'dark' : 'light')
+  }, [darkMode])
 
-  const sigma    = [...new Set(automaton.transitions.map(t => t.label).filter(Boolean))].sort()
+  const changeMode = useCallback((nextMode: Mode) => {
+    setMode(nextMode)
+    if (nextMode !== 'edit') setTool('select')
+  }, [])
+
+  const toggleDarkMode = useCallback(() => setDarkMode(current => !current), [])
+
+  const detected = classifyAutomaton(automaton.states, automaton.transitions, automaton.initialId)
+  const typeLabel = detectedMachineType === 'tm-deterministic' ? 'Deterministic TM'
+    : detectedMachineType === 'tm-nondeterministic' ? 'Nondeterministic TM'
+    : detectedMachineType === 'regex' ? 'Regular expression'
+    : detected.label
+  const typeColor = detectedMachineType === 'regex' ? 'green' : detected.color
+
+  const sigmaSet = new Set<string>()
+  for (const transition of automaton.transitions) {
+    for (const token of transition.label.split(',').map(value => value.trim()).filter(Boolean)) {
+      const range = token.match(/^(.)(?:\s*-\s*)(.)$/)
+      if (range) {
+        const start = range[1].charCodeAt(0)
+        const end = range[2].charCodeAt(0)
+        for (let code = start; code <= end && code - start < 512; code++) sigmaSet.add(String.fromCharCode(code))
+      } else if (token !== 'ε') {
+        sigmaSet.add(token)
+      }
+    }
+  }
+  const sigma = [...sigmaSet].sort()
   const sigmaStr = sigma.length === 0 ? '∅' : `{${sigma.join(', ')}}`
 
   const dotColor =
@@ -377,32 +425,45 @@ export default function EditorPage() {
       {/* ── Dot-grid background ── */}
       <DotCanvas viewRef={editorViewRef} />
 
-      {/* ── Diagram canvas ── */}
-      <DiagramCanvas
-        states={automaton.states}
-        transitions={automaton.transitions}
-        initialId={automaton.initialId}
-        selectedId={automaton.selectedId}
-        tool={tool}
-        activeStateIds={mode === 'simulate' ? simulator.sim.activeIds   : undefined}
-        activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
-        readOnly={mode === 'simulate'}
-        hideMinimap={mode === 'simulate'}
-        peers={mergedPeers}
-        onCursorMove={handleCursorMove}
-        onAddState={automaton.addState}
-        onMoveState={automaton.moveState}
-        onDeleteState={automaton.deleteState}
-        onToggleFinal={automaton.toggleFinal}
-        onRenameState={automaton.renameState}
-        onSetInitial={automaton.setInitial}
-        onAddTransition={automaton.addTransition}
-        onEditTransition={automaton.editTransition}
-        onDeleteTransition={automaton.deleteTransition}
-        onSelect={automaton.select}
-        onDeleteSelected={automaton.deleteSelected}
-        onViewChange={v => { editorViewRef.current = v }}
-      />
+      {/* ── Main workspace ── */}
+      {automaton.automatonType === 'regex' && mode === 'edit' ? (
+        <RegexWorkspace
+          regex={automaton.regex}
+          input={simulator.sim.input}
+          sim={simulator.sim}
+          onRegex={value => { automaton.setRegex(value); simulator.setRegex(value) }}
+          onInput={simulator.setInput}
+          onRun={simulator.run}
+          onReset={simulator.reset}
+        />
+      ) : automaton.automatonType !== 'regex' ? (
+        <DiagramCanvas
+          states={automaton.states}
+          transitions={automaton.transitions}
+          initialId={automaton.initialId}
+          selectedId={automaton.selectedId}
+          tool={tool}
+          automatonType={detectedMachineType}
+          activeStateIds={mode === 'simulate' ? simulator.sim.activeIds   : undefined}
+          activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
+          readOnly={mode === 'simulate'}
+          hideMinimap={mode === 'simulate'}
+          peers={mergedPeers}
+          onCursorMove={handleCursorMove}
+          onAddState={automaton.addState}
+          onMoveStates={automaton.moveStates}
+          onDeleteState={automaton.deleteState}
+          onToggleFinal={automaton.toggleFinal}
+          onRenameState={automaton.renameState}
+          onSetInitial={automaton.setInitial}
+          onAddTransition={automaton.addTransition}
+          onEditTransition={automaton.editTransition}
+          onDeleteTransition={automaton.deleteTransition}
+          onSelect={automaton.select}
+          onDeleteSelected={automaton.deleteSelected}
+          onViewChange={v => { editorViewRef.current = v }}
+        />
+      ) : null}
 
       {/* ── Topbar ── */}
       <header className={s.topbar}>
@@ -501,6 +562,15 @@ export default function EditorPage() {
           )}
         </div>
 
+        <button
+          className={s.topbarBtn}
+          onClick={toggleDarkMode}
+          title={darkMode ? 'Light mode' : 'Dark mode'}
+          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+
         {!user && (
           <>
             <div className={s.topbarDivider} />
@@ -517,7 +587,7 @@ export default function EditorPage() {
       <FloatingToolbar
         activeTool={tool}
         onToolChange={setTool}
-        hidden={mode === 'simulate'}
+        hidden={mode === 'simulate' || automaton.automatonType === 'regex'}
       />
 
       {/* ── Right sidebar — always mounted, slides in in simulate mode ── */}
@@ -526,7 +596,9 @@ export default function EditorPage() {
         sigma={new Set(automaton.transitions.map(t => t.label).filter(Boolean))}
         sim={simulator.sim}
         hidden={mode === 'edit'}
+        automatonType={detectedMachineType}
         onInput={simulator.setInput}
+        onRegex={value => { automaton.setRegex(value); simulator.setRegex(value) }}
         onStep={simulator.step}
         onStepBack={simulator.stepBack}
         onRun={simulator.run}
@@ -539,20 +611,20 @@ export default function EditorPage() {
       </div>
 
       {/* ── Bottom status bar ── */}
-      <div className={s.statusbar}>
+      {detectedMachineType !== 'regex' && <div className={s.statusbar}>
 
         {/* Animated mode toggle */}
         <div className={s.modeToggle} data-mode={mode}>
           <div className={s.modeIndicator} />
           <button
             className={`${s.modeBtn} ${mode === 'edit' ? s.modeBtnActive : ''}`}
-            onClick={() => setMode('edit')}
+            onClick={() => changeMode('edit')}
           >
             <Pencil size={11} /> <span className={s.modeBtnLabel}>Edit</span>
           </button>
           <button
             className={`${s.modeBtn} ${mode === 'simulate' ? s.modeBtnActiveGreen : ''}`}
-            onClick={() => setMode('simulate')}
+            onClick={() => changeMode('simulate')}
           >
             <Play size={11} /> <span className={s.modeBtnLabel}>Simulate</span>
           </button>
@@ -566,7 +638,7 @@ export default function EditorPage() {
           ) : simulator.sim.status === 'rejected' ? (
             <span className={s.simRejected}>✕ Simulation complete — rejected</span>
           ) : (
-            <span>Simulating step {simulator.sim.head} / {simulator.sim.input.length}</span>
+            <span>{detectedMachineType.startsWith('tm-') ? `Simulating step ${simulator.sim.head}` : `Simulating step ${simulator.sim.head} / ${simulator.sim.input.length}`}</span>
           )
         ) : (
           <>
@@ -583,9 +655,10 @@ export default function EditorPage() {
             <span>{typeLabel}</span>
           </>
         )}
-      </div>
+      </div>}
 
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
+
 
     </div>
   )
