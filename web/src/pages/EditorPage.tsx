@@ -72,6 +72,15 @@ export default function EditorPage() {
   // but the last one from the broadcast.
   const pendingMovesRef   = useRef<Map<string, RemoteAction>>(new Map())
   const moveThrottleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Remote movement is coalesced to one reducer update per animation frame.
+  // Supabase can deliver several MOVE_STATE messages before the browser paints;
+  // applying every packet would force a full SVG render for every packet on
+  // the receiving device. The latest position for each state is all that
+  // matters while someone is dragging.
+  const pendingRemoteMovesRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const remoteMoveFrameRef = useRef<number | null>(null)
+  const pendingRemoteCursorsRef = useRef<Map<string, CursorState>>(new Map())
+  const remoteCursorFrameRef = useRef<number | null>(null)
 
   // Signed-in collaborators show their initial; anonymous ones get a
   // Google-Docs-style animal identity (no account needed to co-edit).
@@ -97,7 +106,7 @@ export default function EditorPage() {
         const elapsed = now - lastMoveSentRef.current
         const moveKey = action.type === 'MOVE_STATE' ? action.id : '__bulk__'
         pendingMovesRef.current.set(moveKey, action)
-        if (elapsed >= 16) {
+        if (elapsed >= 33) {
           lastMoveSentRef.current = now
           for (const a of pendingMovesRef.current.values()) broadcastAction(channel, clientIdRef.current, a)
           pendingMovesRef.current.clear()
@@ -109,7 +118,7 @@ export default function EditorPage() {
               for (const a of pendingMovesRef.current.values()) broadcastAction(channelRef.current, clientIdRef.current, a)
               pendingMovesRef.current.clear()
             }
-          }, 16 - elapsed)
+          }, 33 - elapsed)
         }
       } else {
         broadcastAction(channel, clientIdRef.current, action)
@@ -142,6 +151,58 @@ export default function EditorPage() {
   }
 
   const automaton      = useAutomaton({ persistLocal: !id, onAction: handleLocalAction })
+
+  // Remote drag packets are intentionally lower-frequency than local input.
+  // We keep the newest position per state and commit one combined reducer
+  // action on the next paint. This prevents a slower collaborator device from
+  // spending its frame budget replaying stale intermediate positions.
+  const applyRemoteCollaborative = useCallback((action: RemoteAction) => {
+    if (action.type === 'MOVE_STATE') {
+      pendingRemoteMovesRef.current.set(action.id, { x: action.x, y: action.y })
+      if (remoteMoveFrameRef.current === null) {
+        remoteMoveFrameRef.current = requestAnimationFrame(() => {
+          remoteMoveFrameRef.current = null
+          const updates = Array.from(pendingRemoteMovesRef.current, ([id, pos]) => ({ id, ...pos }))
+          pendingRemoteMovesRef.current.clear()
+          if (updates.length) automaton.applyRemote({ type: 'MOVE_STATES', updates })
+        })
+      }
+      return
+    }
+    if (action.type === 'MOVE_STATES') {
+      for (const update of action.updates) {
+        pendingRemoteMovesRef.current.set(update.id, { x: update.x, y: update.y })
+      }
+      if (remoteMoveFrameRef.current === null) {
+        remoteMoveFrameRef.current = requestAnimationFrame(() => {
+          remoteMoveFrameRef.current = null
+          const updates = Array.from(pendingRemoteMovesRef.current, ([id, pos]) => ({ id, ...pos }))
+          pendingRemoteMovesRef.current.clear()
+          if (updates.length) automaton.applyRemote({ type: 'MOVE_STATES', updates })
+        })
+      }
+      return
+    }
+    automaton.applyRemote(action)
+  }, [automaton.applyRemote])
+
+  // Cursor/selection broadcasts are presentation-only. Coalesce them as well
+  // so a burst of packets cannot cause a burst of React renders on a phone.
+  const queueRemoteCursor = useCallback((senderId: string, cursor: CursorState) => {
+    pendingRemoteCursorsRef.current.set(senderId, cursor)
+    if (remoteCursorFrameRef.current !== null) return
+    remoteCursorFrameRef.current = requestAnimationFrame(() => {
+      remoteCursorFrameRef.current = null
+      const pending = Array.from(pendingRemoteCursorsRef.current.entries())
+      pendingRemoteCursorsRef.current.clear()
+      if (!pending.length) return
+      setCursors(prev => {
+        const next = { ...prev }
+        for (const [id, value] of pending) next[id] = value
+        return next
+      })
+    })
+  }, [])
 
   useEffect(() => {
     if (!id && newType) {
@@ -275,7 +336,7 @@ export default function EditorPage() {
       presenceId: presenceIdRef.current,
       sessionId: browserSessionIdRef.current,
       getPresence: () => ({ color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name, sessionId: browserSessionIdRef.current }),
-      onAction: automaton.applyRemote,
+      onAction: applyRemoteCollaborative,
       onPresence: newPeers => {
         setPeers(newPeers)
         // Drop cursor/selection data for anyone who's no longer connected
@@ -287,9 +348,7 @@ export default function EditorPage() {
           return next
         })
       },
-      onCursor: (senderId, cursor) => {
-        setCursors(prev => ({ ...prev, [senderId]: cursor }))
-      },
+      onCursor: queueRemoteCursor,
     })
     channelRef.current = channel
     return () => {
@@ -297,8 +356,14 @@ export default function EditorPage() {
       channelRef.current = null
       setPeers([])
       setCursors({})
+      pendingRemoteMovesRef.current.clear()
+      pendingRemoteCursorsRef.current.clear()
+      if (remoteMoveFrameRef.current !== null) cancelAnimationFrame(remoteMoveFrameRef.current)
+      if (remoteCursorFrameRef.current !== null) cancelAnimationFrame(remoteCursorFrameRef.current)
+      remoteMoveFrameRef.current = null
+      remoteCursorFrameRef.current = null
     }
-  }, [docId, isPublic]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [docId, isPublic, applyRemoteCollaborative, queueRemoteCursor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selection changed without necessarily moving the mouse (e.g. a click)
   // — push it to peers right away rather than waiting for the next

@@ -677,7 +677,7 @@ export default function DiagramCanvas({
 
       if (cbCursorMove.current && e.pointerType !== 'touch') {
         const now = performance.now()
-        if (now - lastCursorSentRef.current > 16) {
+        if (now - lastCursorSentRef.current > 33) {
           lastCursorSentRef.current = now
           const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
           cbCursorMove.current(w.x, w.y)
@@ -1169,7 +1169,8 @@ export default function DiagramCanvas({
             // this drag is actively pushing aside) eases into its new spot
             // so the push reads as a shove, not a teleport.
             const isLocalDrag = dragRef.current.mode === 'state' && dragRef.current.stateId === st.id
-            const groupStyle  = isLocalDrag ? undefined : { transition: 'transform 0.12s ease-out' }
+            const isLocalCollisionPush = dragRef.current.mode === 'state' && !isLocalDrag
+            const groupStyle  = isLocalDrag ? undefined : isLocalCollisionPush ? { transition: 'transform 0.12s ease-out' } : undefined
 
             return (
               <g key={st.id} transform={`translate(${st.x} ${st.y})`} style={groupStyle}>
