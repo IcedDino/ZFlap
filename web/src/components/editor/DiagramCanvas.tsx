@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import type { FAState, FATransition } from '../../hooks/useAutomaton'
+import type { FAState, FATransition, FATransitionKind } from '../../hooks/useAutomaton'
 import { STATE_R, FINAL_GAP } from '../../hooks/useAutomaton'
 import type { Tool } from './FloatingToolbar'
 import s from './DiagramCanvas.module.css'
@@ -33,6 +33,7 @@ interface Popup {
   visible: boolean
   screenX: number; screenY: number
   fromId: string;  toId: string
+  editingTransitionId: string | null
 }
 
 // ── Label fit helper ──────────────────────────────────────────────────────────
@@ -222,7 +223,8 @@ interface Props {
   onToggleFinal:      (id: string) => void
   onRenameState:      (id: string, label: string) => void
   onSetInitial:       (id: string) => void
-  onAddTransition:    (fromId: string, toId: string, label: string) => void
+  onAddTransition:    (fromId: string, toId: string, label: string, kind?: FATransitionKind, rangeStart?: string, rangeEnd?: string) => void
+  onEditTransition?:  (id: string, label: string, kind?: FATransitionKind, rangeStart?: string, rangeEnd?: string) => void
   onDeleteTransition: (id: string) => void
   onSelect:           (id: string | null) => void
   onDeleteSelected:   () => void
@@ -236,12 +238,14 @@ export default function DiagramCanvas({
   states, transitions, initialId, selectedId, tool,
   activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
   onAddState, onMoveState, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
-  onAddTransition, onDeleteTransition, onSelect, onDeleteSelected,
+  onAddTransition, onEditTransition, onDeleteTransition, onSelect, onDeleteSelected,
   onViewChange, onCursorMove,
 }: Props) {
   const svgRef   = useRef<SVGSVGElement>(null)
   const groupRef = useRef<SVGGElement>(null)
   const labelRef = useRef<HTMLInputElement>(null)
+  const rangeStartRef = useRef<HTMLInputElement>(null)
+  const rangeEndRef = useRef<HTMLInputElement>(null)
 
   // View stored in a ref — updated directly for pan/zoom (no React re-renders)
   const viewRef = useRef<View>({ panX: 0, panY: 0, zoom: 1 })
@@ -275,6 +279,7 @@ export default function DiagramCanvas({
   const cbRename      = useRef(onRenameState)
   const cbSetInitial  = useRef(onSetInitial)
   const cbAddTrans    = useRef(onAddTransition)
+  const cbEditTrans   = useRef(onEditTransition)
   const cbDelTrans    = useRef(onDeleteTransition)
   const cbSelect      = useRef(onSelect)
   const cbDelSelected   = useRef(onDeleteSelected)
@@ -292,6 +297,7 @@ export default function DiagramCanvas({
   cbRename.current      = onRenameState
   cbSetInitial.current  = onSetInitial
   cbAddTrans.current    = onAddTransition
+  cbEditTrans.current   = onEditTransition
   cbDelTrans.current    = onDeleteTransition
   cbSelect.current      = onSelect
   cbDelSelected.current = onDeleteSelected
@@ -301,8 +307,12 @@ export default function DiagramCanvas({
   // React state for visuals that need a re-render
   const [transDrag, setTransDrag] = useState<TransitionDragState | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [popup, setPopup]         = useState<Popup>({ visible: false, screenX: 0, screenY: 0, fromId: '', toId: '' })
+  const [popup, setPopup]         = useState<Popup>({ visible: false, screenX: 0, screenY: 0, fromId: '', toId: '', editingTransitionId: null })
   const [labelDraft, setLabelDraft] = useState('')
+  const [rangeMode, setRangeMode] = useState(false)
+  const [rangeStartDraft, setRangeStartDraft] = useState('')
+  const [rangeEndDraft, setRangeEndDraft] = useState('')
+  const [rangeError, setRangeError] = useState('')
 
   interface RenamePopup { stateId: string; screenX: number; screenY: number }
   const [renamePopup, setRenamePopup] = useState<RenamePopup | null>(null)
@@ -511,15 +521,68 @@ export default function DiagramCanvas({
         const midWX = isSelf ? fromSt.x              : (fromSt.x + snap.x) / 2
         const midWY = isSelf ? fromSt.y - STATE_R - 44 : (fromSt.y + snap.y) / 2
         const vp = toViewport(midWX, midWY, svg, viewRef.current)
-        setPopup({ visible: true, screenX: vp.x, screenY: vp.y, fromId: d.fromId, toId: snap.id })
+        setPopup({
+          visible: true,
+          screenX: vp.x,
+          screenY: vp.y,
+          fromId: d.fromId,
+          toId: snap.id,
+          editingTransitionId: null,
+        })
         setLabelDraft('')
+        setRangeMode(false)
+        setRangeStartDraft('')
+        setRangeEndDraft('')
+        setRangeError('')
         requestAnimationFrame(() => labelRef.current?.focus())
       }
     }
 
-    // ── dblclick: rename state ──
+    // ── dblclick: edit transition or rename state ──
     function onDbl(e: MouseEvent) {
-      if (readOnlyRef.current) return
+      if (readOnlyRef.current || toolRef.current !== 'select') return
+
+      // A transition is editable only in Select mode. Check it first so a
+      // double-click on the transition label/path never falls through to
+      // state renaming.
+      const tid = getTransId(e.target)
+      if (tid) {
+        const t = transRef.current.find(tr => tr.id === tid)
+        if (!t) return
+
+        const from = statesRef.current.find(s => s.id === t.fromId)
+        const to   = statesRef.current.find(s => s.id === t.toId)
+        if (!from || !to) return
+
+        const isTwin = transRef.current.some(r =>
+          r.id !== t.id && r.fromId === t.toId && r.toId === t.fromId
+        )
+        const isFwd = !isTwin || t.fromId < t.toId
+        const { lx, ly } = computeTransPath(from, to, isTwin, isFwd)
+        const vp = toViewport(lx, ly, svg, viewRef.current)
+
+        const isRange = t.kind === 'range' && !!t.rangeStart && !!t.rangeEnd
+        setPopup({
+          visible: true,
+          screenX: vp.x,
+          screenY: vp.y,
+          fromId: t.fromId,
+          toId: t.toId,
+          editingTransitionId: t.id,
+        })
+        setRangeMode(isRange)
+        setLabelDraft(isRange ? '' : t.label)
+        setRangeStartDraft(isRange ? (t.rangeStart ?? '') : '')
+        setRangeEndDraft(isRange ? (t.rangeEnd ?? '') : '')
+        setRangeError('')
+
+        requestAnimationFrame(() => {
+          if (isRange) rangeStartRef.current?.select()
+          else labelRef.current?.select()
+        })
+        return
+      }
+
       const w  = toWorld(e.clientX, e.clientY, svg, viewRef.current)
       const st = hitState(statesRef.current, w.x, w.y)
       if (!st) return
@@ -590,9 +653,61 @@ export default function DiagramCanvas({
 
   const confirmLabel = useCallback(() => {
     if (!popup.visible) return
-    cbAddTrans.current(popup.fromId, popup.toId, labelDraft.trim() || 'ε')
+
+    const editingId = popup.editingTransitionId
+
+    if (!rangeMode) {
+      const label = labelDraft.trim() || 'ε'
+      if (editingId) {
+        cbEditTrans.current?.(editingId, label, 'symbol')
+      } else {
+        cbAddTrans.current(popup.fromId, popup.toId, label, 'symbol')
+      }
+      setPopup(p => ({ ...p, visible: false }))
+      return
+    }
+
+    const start = rangeStartDraft.trim()
+    const end   = rangeEndDraft.trim()
+    const startCode = start.length === 1 ? start.charCodeAt(0) : -1
+    const endCode   = end.length === 1 ? end.charCodeAt(0) : -1
+    const sameLowercase = startCode >= 97 && startCode <= 122 && endCode >= 97 && endCode <= 122
+    const sameDigit     = startCode >= 48 && startCode <= 57 && endCode >= 48 && endCode <= 57
+
+    if (!sameLowercase && !sameDigit) {
+      setRangeError('Use a-z or 0-9 only')
+      return
+    }
+    if (startCode > endCode) {
+      setRangeError('Range must go from low to high')
+      return
+    }
+
+    const label = `${start}-${end}`
+    if (editingId) {
+      cbEditTrans.current?.(editingId, label, 'range', start, end)
+    } else {
+      cbAddTrans.current(popup.fromId, popup.toId, label, 'range', start, end)
+    }
     setPopup(p => ({ ...p, visible: false }))
-  }, [popup, labelDraft])
+  }, [popup, labelDraft, rangeMode, rangeStartDraft, rangeEndDraft])
+
+
+  const toggleRangeMode = useCallback(() => {
+    setRangeMode(current => {
+      const next = !current
+      setRangeError('')
+      if (next) {
+        setLabelDraft('')
+        requestAnimationFrame(() => rangeStartRef.current?.focus())
+      } else {
+        setRangeStartDraft('')
+        setRangeEndDraft('')
+        requestAnimationFrame(() => labelRef.current?.focus())
+      }
+      return next
+    })
+  }, [])
 
   const cancelLabel = useCallback(() => setPopup(p => ({ ...p, visible: false })), [])
 
@@ -913,23 +1028,68 @@ export default function DiagramCanvas({
           className={s.popup}
           style={{ left: popup.screenX, top: popup.screenY }}
         >
-          <span className={s.popupHint}>Transition label</span>
-          <input
-            ref={labelRef}
-            className={s.popupInput}
-            value={labelDraft}
-            onChange={e => setLabelDraft(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
-              if (e.key === 'Escape') { e.preventDefault(); cancelLabel()  }
-              e.stopPropagation()
-            }}
-            placeholder="ε"
-            maxLength={8}
-            spellCheck={false}
-          />
-          <button className={s.popupOk}     onClick={confirmLabel}>Add</button>
+          <span className={s.popupHint}>
+            {popup.editingTransitionId ? 'Edit transition' : 'Transition label'}
+          </span>
+          {!rangeMode ? (
+            <input
+              ref={labelRef}
+              className={s.popupInput}
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
+                if (e.key === 'Escape') { e.preventDefault(); cancelLabel()  }
+                e.stopPropagation()
+              }}
+              placeholder="ε"
+              maxLength={8}
+              spellCheck={false}
+            />
+          ) : (
+            <>
+              <input
+                ref={rangeStartRef}
+                className={s.popupRangeInput}
+                value={rangeStartDraft}
+                onChange={e => { setRangeStartDraft(e.target.value.slice(-1)); setRangeError('') }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelLabel() }
+                  if (e.key === 'Tab') requestAnimationFrame(() => rangeEndRef.current?.focus())
+                  e.stopPropagation()
+                }}
+                placeholder="a"
+                maxLength={1}
+                spellCheck={false}
+              />
+              <span className={s.popupRangeDash}>-</span>
+              <input
+                ref={rangeEndRef}
+                className={s.popupRangeInput}
+                value={rangeEndDraft}
+                onChange={e => { setRangeEndDraft(e.target.value.slice(-1)); setRangeError('') }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelLabel() }
+                  e.stopPropagation()
+                }}
+                placeholder="z"
+                maxLength={1}
+                spellCheck={false}
+              />
+            </>
+          )}
+          <button
+            className={`${s.popupRangeButton} ${rangeMode ? s.popupRangeButtonActive : ''}`}
+            onClick={toggleRangeMode}
+            type="button"
+          >Range</button>
+          <button className={s.popupOk} onClick={confirmLabel}>
+            {popup.editingTransitionId ? 'Save' : 'Add'}
+          </button>
           <button className={s.popupCancel} onClick={cancelLabel}>✕</button>
+          {rangeError && <span className={s.popupError}>{rangeError}</span>}
         </div>
       )}
 

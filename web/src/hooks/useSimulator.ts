@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import type { FAState, FATransition } from './useAutomaton'
+import { transitionMatchesSymbol } from './useAutomaton'
 
 export type SimStatus = 'idle' | 'running' | 'accepted' | 'rejected'
 
@@ -48,7 +49,7 @@ function moveOn(ids: Set<string>, symbol: string, transitions: FATransition[]): 
   const next = new Set<string>()
   for (const id of ids) {
     for (const t of transitions) {
-      if (t.fromId === id && t.label === symbol) next.add(t.toId)
+      if (t.fromId === id && transitionMatchesSymbol(t, symbol)) next.add(t.toId)
     }
   }
   return next
@@ -61,7 +62,7 @@ function firedOnSymbol(
   const fired = new Set<string>()
   for (const id of fromIds) {
     for (const t of transitions) {
-      if (t.fromId === id && t.label === symbol) fired.add(t.id)
+      if (t.fromId === id && transitionMatchesSymbol(t, symbol)) fired.add(t.id)
     }
   }
   return fired

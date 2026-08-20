@@ -128,3 +128,67 @@
 .popupCancel:hover {
   color: var(--text);
 }
+
+.popupRangeInput {
+  width: 30px;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 5px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.popupRangeInput:focus {
+  border-color: var(--orange);
+}
+.popupRangeInput::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+.popupRangeDash {
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.popupRangeButton {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.popupRangeButton:hover,
+.popupRangeButtonActive {
+  color: #fff;
+  background: var(--orange);
+  border-color: var(--orange);
+}
+
+.popupError {
+  position: absolute;
+  left: 10px;
+  top: calc(100% + 5px);
+  font-size: 10px;
+  color: #B42318;
+  background: rgba(250, 249, 247, 0.96);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
