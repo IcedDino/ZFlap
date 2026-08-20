@@ -42,6 +42,7 @@
 
 .minimap svg {
   display: block;
+  touch-action: none;
 }
 
 /* ── Transition label popup ─────────────────────────────────────────────────── */
@@ -196,3 +197,24 @@
 :global(:root[data-theme='dark']) .minimap { background: rgba(26, 24, 20, 0.88); }
 :global(:root[data-theme='dark']) .popup { background: rgba(26, 24, 20, 0.96); }
 :global(:root[data-theme='dark']) .popupError { background: rgba(26, 24, 20, 0.96); }
+
+/* Pointer Events are used by the editor so mouse, touch and pen share one
+   interaction model. Keep browser touch scrolling outside the editor, while
+   allowing the canvas to own pan/zoom/selection gestures. */
+.svg {
+  touch-action: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .popupInput,
+  .popupRangeInput {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .minimap {
+    bottom: 74px;
+    right: 10px;
+  }
+}

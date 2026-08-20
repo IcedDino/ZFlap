@@ -99,3 +99,44 @@
   background: var(--glass);
   box-shadow: 0 2px 8px rgba(0,0,0,0.24), 0 12px 40px rgba(0,0,0,0.34);
 }
+
+
+/* Touch layout: keep the same controls and styling, but place the toolbar
+   within thumb reach and allow horizontal scrolling on narrow screens. */
+@media (max-width: 640px) {
+  .root {
+    left: 50%;
+    top: auto;
+    bottom: 12px;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 24px);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .root::-webkit-scrollbar {
+    display: none;
+  }
+
+  .group {
+    flex-direction: row;
+    width: auto;
+    flex-shrink: 0;
+  }
+
+  .divider {
+    width: 1px;
+    height: 24px;
+    margin: 0 4px;
+    flex-shrink: 0;
+  }
+
+  .rootHidden {
+    transform: translateX(-50%) translateY(20px);
+  }
+}

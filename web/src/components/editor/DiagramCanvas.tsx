@@ -306,6 +306,13 @@ export default function DiagramCanvas({
   const mmSvgRef  = useRef<SVGSVGElement>(null)
   const mmDragRef = useRef(false)
   const suppressContextMenuRef = useRef(false)
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ startDistance: number; startZoom: number; startPanX: number; startPanY: number; startCenterX: number; startCenterY: number; startWorldX: number; startWorldY: number } | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressRef = useRef<{ pointerId: number; startX: number; startY: number; fired: boolean } | null>(null)
+  const touchMovedRef = useRef(false)
+  const lastTapRef = useRef<{ time: number; x: number; y: number; stateId: string | null; transId: string | null }>({ time: 0, x: 0, y: 0, stateId: null, transId: null })
+  const touchStartHitRef = useRef<{ stateId: string | null; transId: string | null }>({ stateId: null, transId: null })
 
   // Mirrors of props as refs so native handlers always read current values
   // without needing to be in the effect dependency array
@@ -421,7 +428,7 @@ export default function DiagramCanvas({
 
   // ── Navigate canvas to a minimap-click world position ────────────────────────
 
-  function panToMinimap(e: MouseEvent) {
+  function panToMinimap(e: { clientX: number; clientY: number }) {
     const mmSvg = mmSvgRef.current
     const svgEl = svgRef.current
     if (!mmSvg || !svgEl) return
@@ -458,18 +465,74 @@ export default function DiagramCanvas({
   useEffect(() => {
     const svg = svgRef.current!
 
-    // ── mousedown ──
-    function onDown(e: MouseEvent) {
-      const ro          = readOnlyRef.current
-      const currentTool = toolRef.current
-      const w           = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+    function clearLongPress() {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current)
+        longPressTimerRef.current = null
+      }
+      longPressRef.current = null
+    }
 
-      // In Select mode, right-drag behaves like a desktop selection marquee.
-      // Dragging from inside the current selection moves that selected group;
-      // dragging elsewhere creates a rectangle and selects every state it
-      // intersects on release. Other tools keep the existing right-drag group
-      // move behaviour for backwards compatibility.
-      if (e.button === 2 && !ro) {
+    function beginPinch() {
+      const points = [...activePointersRef.current.values()]
+      if (points.length < 2 || !svg) return
+      const a = points[0], b = points[1]
+      const dx = b.x - a.x, dy = b.y - a.y
+      const distance = Math.max(1, Math.hypot(dx, dy))
+      const centerX = (a.x + b.x) / 2
+      const centerY = (a.y + b.y) / 2
+      const r = svg.getBoundingClientRect()
+      const v = viewRef.current
+      const sx = centerX - r.left
+      const sy = centerY - r.top
+      pinchRef.current = {
+        startDistance: distance,
+        startZoom: v.zoom,
+        startPanX: v.panX,
+        startPanY: v.panY,
+        startCenterX: sx,
+        startCenterY: sy,
+        startWorldX: (sx - v.panX) / v.zoom,
+        startWorldY: (sy - v.panY) / v.zoom,
+      }
+      dragRef.current = { mode: 'idle' }
+      setSelectionRect(null)
+      setTransDrag(null)
+      setHoveredId(null)
+      setPopup(p => p.visible ? { ...p, visible: false } : p)
+      setRenamePopup(null)
+      clearLongPress()
+    }
+
+    // ── pointerdown: mouse, touch and pen share the same interaction model ──
+    function onPointerDown(e: PointerEvent) {
+      const ro = readOnlyRef.current
+      const currentTool = toolRef.current
+      const isTouch = e.pointerType === 'touch'
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (svg.setPointerCapture) {
+        try { svg.setPointerCapture(e.pointerId) } catch { /* pointer may already be released */ }
+      }
+
+      if (isTouch && activePointersRef.current.size >= 2) {
+        e.preventDefault()
+        beginPinch()
+        return
+      }
+
+      const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+      if (isTouch) {
+        touchStartHitRef.current = {
+          stateId: hitState(statesRef.current, w.x, w.y)?.id ?? null,
+          transId: getTransId(e.target),
+        }
+        touchMovedRef.current = false
+      }
+
+      // Desktop right-drag keeps the original Windows-like marquee behavior.
+      // On touch there is no right button, so long-press on empty Select canvas
+      // enters the same marquee mode below.
+      if (e.button === 2 && !isTouch && !ro) {
         e.preventDefault()
         suppressContextMenuRef.current = true
         if (statesRef.current.length === 0) return
@@ -478,9 +541,7 @@ export default function DiagramCanvas({
         if (currentTool === 'select' && hit && selectedIdsRef.current.has(hit.id)) {
           const selected = new Set(selectedIdsRef.current)
           const origins = new Map(
-            statesRef.current
-              .filter(st => selected.has(st.id))
-              .map(st => [st.id, { x: st.x, y: st.y }])
+            statesRef.current.filter(st => selected.has(st.id)).map(st => [st.id, { x: st.x, y: st.y }])
           )
           if (origins.size > 0) {
             dragRef.current = { mode: 'group', startX: w.x, startY: w.y, origins }
@@ -500,9 +561,7 @@ export default function DiagramCanvas({
         }
 
         dragRef.current = {
-          mode: 'group',
-          startX: w.x,
-          startY: w.y,
+          mode: 'group', startX: w.x, startY: w.y,
           origins: new Map(statesRef.current.map(st => [st.id, { x: st.x, y: st.y }])),
         }
         return
@@ -511,19 +570,17 @@ export default function DiagramCanvas({
       if (e.button !== 0) return
       e.preventDefault()
 
-      // Did we click a transition hit-zone?
       const tid = getTransId(e.target)
       if (tid) {
         if (!ro && currentTool === 'delete') { cbDelTrans.current(tid); return }
-        if (!ro && currentTool === 'select') { cbSelect.current(tid);   return }
+        if (!ro && currentTool === 'select') { cbSelect.current(tid); return }
         return
       }
 
-      // Did we hit a state?
       const st = hitState(statesRef.current, w.x, w.y)
       if (st) {
-        if (!ro && currentTool === 'delete')  { cbDelState.current(st.id);    return }
-        if (!ro && currentTool === 'final')   { cbToggle.current(st.id);     return }
+        if (!ro && currentTool === 'delete') { cbDelState.current(st.id); return }
+        if (!ro && currentTool === 'final') { cbToggle.current(st.id); return }
         if (!ro && currentTool === 'initial') { cbSetInitial.current(st.id); return }
         if (!ro && currentTool === 'transition') {
           dragRef.current = { mode: 'transition', fromId: st.id }
@@ -531,34 +588,93 @@ export default function DiagramCanvas({
           return
         }
         if (!ro && currentTool === 'select') {
-          selectedIdsRef.current = new Set([st.id])
-          cbSelect.current(st.id)
-          dragRef.current = { mode: 'state', stateId: st.id, offX: w.x - st.x, offY: w.y - st.y }
+          // On touch, dragging a member of an existing multi-selection moves
+          // the whole group, matching the desktop right-drag workflow. A normal
+          // mouse click keeps the original single-state selection behavior.
+          if (isTouch && selectedIdsRef.current.size > 1 && selectedIdsRef.current.has(st.id)) {
+            const origins = new Map(
+              statesRef.current
+                .filter(state => selectedIdsRef.current.has(state.id))
+                .map(state => [state.id, { x: state.x, y: state.y }])
+            )
+            dragRef.current = { mode: 'group', startX: w.x, startY: w.y, origins }
+          } else {
+            selectedIdsRef.current = new Set([st.id])
+            cbSelect.current(st.id)
+            dragRef.current = { mode: 'state', stateId: st.id, offX: w.x - st.x, offY: w.y - st.y }
+          }
+          touchMovedRef.current = false
           return
         }
-        // In readOnly mode: fall through to pan
       }
 
-      // Empty canvas (or readOnly — always allow pan)
       if (!ro && currentTool === 'state') {
         cbAdd.current(w.x, w.y)
         return
       }
+
       if (ro || currentTool === 'select') {
         if (!ro) {
           selectedIdsRef.current.clear()
           cbSelect.current(null)
         }
+        const r = svg.getBoundingClientRect()
+        const sx = e.clientX - r.left
+        const sy = e.clientY - r.top
+
+        if (isTouch && !ro && currentTool === 'select') {
+          // Long-press on empty canvas enters the same marquee used by right-drag.
+          dragRef.current = { mode: 'idle' }
+          longPressRef.current = { pointerId: e.pointerId, startX: sx, startY: sy, fired: false }
+          longPressTimerRef.current = window.setTimeout(() => {
+            const lp = longPressRef.current
+            if (!lp || lp.pointerId !== e.pointerId || activePointersRef.current.size !== 1) return
+            lp.fired = true
+            dragRef.current = { mode: 'rect-select', startSX: lp.startX, startSY: lp.startY, currentSX: lp.startX, currentSY: lp.startY }
+            setSelectionRect({ x: lp.startX, y: lp.startY, width: 0, height: 0 })
+            setPopup(p => p.visible ? { ...p, visible: false } : p)
+            setRenamePopup(null)
+          }, 350)
+          return
+        }
+
         const v = viewRef.current
         dragRef.current = { mode: 'pan', startPanX: v.panX, startPanY: v.panY, startSX: e.clientX, startSY: e.clientY }
       }
     }
 
-    // ── mousemove ──
-    function onMove(e: MouseEvent) {
+    function onPointerMove(e: PointerEvent) {
+      if (activePointersRef.current.has(e.pointerId)) {
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
+
+      if (activePointersRef.current.size >= 2) {
+        if (!pinchRef.current) beginPinch()
+        const pinch = pinchRef.current
+        const points = [...activePointersRef.current.values()]
+        if (pinch && points.length >= 2) {
+          e.preventDefault()
+          const a = points[0], b = points[1]
+          const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y))
+          const centerX = (a.x + b.x) / 2
+          const centerY = (a.y + b.y) / 2
+          const r = svg.getBoundingClientRect()
+          const sx = centerX - r.left
+          const sy = centerY - r.top
+          const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinch.startZoom * (distance / pinch.startDistance)))
+          viewRef.current = {
+            zoom: newZoom,
+            panX: sx - pinch.startWorldX * newZoom,
+            panY: sy - pinch.startWorldY * newZoom,
+          }
+          applyView()
+          return
+        }
+      }
+
       if (mmDragRef.current) { panToMinimap(e); return }
 
-      if (cbCursorMove.current) {
+      if (cbCursorMove.current && e.pointerType !== 'touch') {
         const now = performance.now()
         if (now - lastCursorSentRef.current > 16) {
           lastCursorSentRef.current = now
@@ -567,27 +683,38 @@ export default function DiagramCanvas({
         }
       }
 
-      const d = dragRef.current
+      const lp = longPressRef.current
+      if (lp && lp.pointerId === e.pointerId && !lp.fired) {
+        const moved = Math.hypot(e.clientX - (svg.getBoundingClientRect().left + lp.startX), e.clientY - (svg.getBoundingClientRect().top + lp.startY))
+        if (moved > 8) {
+          clearLongPress()
+          touchMovedRef.current = true
+          if (readOnlyRef.current || currentToolIsSelect(toolRef.current)) {
+            const v = viewRef.current
+            dragRef.current = { mode: 'pan', startPanX: v.panX, startPanY: v.panY, startSX: e.clientX, startSY: e.clientY }
+          }
+        } else {
+          return
+        }
+      }
 
+      const d = dragRef.current
       if (d.mode === 'idle') {
+        if (e.pointerType === 'touch') return
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
-        const hit = hitState(statesRef.current, w.x, w.y)
-        setHoveredId(hit?.id ?? null)
+        setHoveredId(hitState(statesRef.current, w.x, w.y)?.id ?? null)
         return
       }
 
       if (d.mode === 'pan') {
-        viewRef.current = {
-          ...viewRef.current,
-          panX: d.startPanX + e.clientX - d.startSX,
-          panY: d.startPanY + e.clientY - d.startSY,
-        }
+        viewRef.current = { ...viewRef.current, panX: d.startPanX + e.clientX - d.startSX, panY: d.startPanY + e.clientY - d.startSY }
         applyView()
         setPopup(p => p.visible ? { ...p, visible: false } : p)
         return
       }
 
       if (d.mode === 'state') {
+        touchMovedRef.current = true
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
         const updates = resolveCollisions(statesRef.current, d.stateId, w.x - d.offX, w.y - d.offY)
         cbMoveStates.current([...updates].map(([id, p]) => ({ id, x: p.x, y: p.y })))
@@ -596,58 +723,49 @@ export default function DiagramCanvas({
 
       if (d.mode === 'rect-select') {
         const r = svg.getBoundingClientRect()
-        const sx = e.clientX - r.left
-        const sy = e.clientY - r.top
+        const sx = e.clientX - r.left, sy = e.clientY - r.top
         dragRef.current = { ...d, currentSX: sx, currentSY: sy }
-        const x = Math.min(d.startSX, sx)
-        const y = Math.min(d.startSY, sy)
-        setSelectionRect({ x, y, width: Math.abs(sx - d.startSX), height: Math.abs(sy - d.startSY) })
+        setSelectionRect({ x: Math.min(d.startSX, sx), y: Math.min(d.startSY, sy), width: Math.abs(sx - d.startSX), height: Math.abs(sy - d.startSY) })
         return
       }
 
       if (d.mode === 'group') {
+        touchMovedRef.current = true
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
-        const dx = w.x - d.startX
-        const dy = w.y - d.startY
+        const dx = w.x - d.startX, dy = w.y - d.startY
         cbMoveStates.current([...d.origins].map(([id, p]) => ({ id, x: p.x + dx, y: p.y + dy })))
         return
       }
 
       if (d.mode === 'transition') {
-        const w    = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+        const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
         const snap = hitState(statesRef.current, w.x, w.y)
         setTransDrag({ fromId: d.fromId, cursorX: w.x, cursorY: w.y, snapId: snap?.id ?? null })
         setHoveredId(snap?.id ?? null)
       }
     }
 
-    // ── mouseup ──
-    function onUp(e: MouseEvent) {
-      mmDragRef.current = false
+    function currentToolIsSelect(currentTool: Tool) { return currentTool === 'select' }
+
+    function onPointerUp(e: PointerEvent) {
+      activePointersRef.current.delete(e.pointerId)
+      if (activePointersRef.current.size < 2) pinchRef.current = null
+      clearLongPress()
+      if (mmDragRef.current) mmDragRef.current = false
+
       const d = dragRef.current
       dragRef.current = { mode: 'idle' }
 
       if (d.mode === 'rect-select') {
         const r = svg.getBoundingClientRect()
-        const ex = e.clientX - r.left
-        const ey = e.clientY - r.top
-        const x1 = Math.min(d.startSX, ex)
-        const y1 = Math.min(d.startSY, ey)
-        const x2 = Math.max(d.startSX, ex)
-        const y2 = Math.max(d.startSY, ey)
-        const z = viewRef.current.zoom
-        const panX = viewRef.current.panX
-        const panY = viewRef.current.panY
-        const ids = new Set(
-          statesRef.current
-            .filter(st => {
-              const sx = st.x * z + panX
-              const sy = st.y * z + panY
-              const radius = (STATE_R + 4) * z
-              return sx + radius >= x1 && sx - radius <= x2 && sy + radius >= y1 && sy - radius <= y2
-            })
-            .map(st => st.id)
-        )
+        const ex = e.clientX - r.left, ey = e.clientY - r.top
+        const x1 = Math.min(d.startSX, ex), y1 = Math.min(d.startSY, ey)
+        const x2 = Math.max(d.startSX, ex), y2 = Math.max(d.startSY, ey)
+        const z = viewRef.current.zoom, panX = viewRef.current.panX, panY = viewRef.current.panY
+        const ids = new Set(statesRef.current.filter(st => {
+          const sx = st.x * z + panX, sy = st.y * z + panY, radius = (STATE_R + 4) * z
+          return sx + radius >= x1 && sx - radius <= x2 && sy + radius >= y1 && sy - radius <= y2
+        }).map(st => st.id))
         selectedIdsRef.current = ids
         const first = ids.values().next().value as string | undefined
         cbSelect.current(first ?? null)
@@ -656,31 +774,39 @@ export default function DiagramCanvas({
       }
 
       if (d.mode === 'transition') {
-        setTransDrag(null)
-        setHoveredId(null)
-        const w    = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+        setTransDrag(null); setHoveredId(null)
+        const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
         const snap = hitState(statesRef.current, w.x, w.y)
         if (!snap) return
-
-        const fromSt = statesRef.current.find(s => s.id === d.fromId)!
+        const fromSt = statesRef.current.find(st => st.id === d.fromId)
+        if (!fromSt) return
         const isSelf = snap.id === d.fromId
-        const midWX = isSelf ? fromSt.x              : (fromSt.x + snap.x) / 2
+        const midWX = isSelf ? fromSt.x : (fromSt.x + snap.x) / 2
         const midWY = isSelf ? fromSt.y - STATE_R - 44 : (fromSt.y + snap.y) / 2
         const vp = toViewport(midWX, midWY, svg, viewRef.current)
-        setPopup({
-          visible: true,
-          screenX: vp.x,
-          screenY: vp.y,
-          fromId: d.fromId,
-          toId: snap.id,
-          editingTransitionId: null,
-        })
-        setLabelDraft('')
-        setRangeMode(false)
-        setRangeStartDraft('')
-        setRangeEndDraft('')
-        setRangeError('')
+        setPopup({ visible: true, screenX: vp.x, screenY: vp.y, fromId: d.fromId, toId: snap.id, editingTransitionId: null })
+        setLabelDraft(''); setRangeMode(false); setRangeStartDraft(''); setRangeEndDraft(''); setRangeError('')
         requestAnimationFrame(() => labelRef.current?.focus())
+        return
+      }
+
+      // A short touch on empty Select canvas is simply a tap; long-press is the marquee.
+      if (e.pointerType === 'touch' && longPressRef.current === null && !touchMovedRef.current) {
+        // handled by the normal selection state above; no special action required
+      }
+
+      if (e.pointerType === 'touch' && !touchMovedRef.current) {
+        const now = performance.now()
+        const tid = touchStartHitRef.current.transId
+        const st = touchStartHitRef.current.stateId ? statesRef.current.find(state => state.id === touchStartHitRef.current.stateId) : null
+        const prev = lastTapRef.current
+        const isDouble = now - prev.time < 320 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 14 && prev.stateId === (st?.id ?? null) && prev.transId === (tid ?? null)
+        if (isDouble && toolRef.current === 'select' && !readOnlyRef.current) {
+          lastTapRef.current = { time: 0, x: 0, y: 0, stateId: null, transId: null }
+          onDbl({ clientX: e.clientX, clientY: e.clientY, target: e.target } as unknown as MouseEvent, st?.id ?? null, tid ?? null)
+        } else {
+          lastTapRef.current = { time: now, x: e.clientX, y: e.clientY, stateId: st?.id ?? null, transId: tid ?? null }
+        }
       }
     }
 
@@ -692,13 +818,13 @@ export default function DiagramCanvas({
       }
     }
 
-    function onDbl(e: MouseEvent) {
+    function onDbl(e: MouseEvent, forcedStateId: string | null = null, forcedTransId: string | null = null) {
       if (readOnlyRef.current || toolRef.current !== 'select') return
 
       // A transition is editable only in Select mode. Check it first so a
       // double-click on the transition label/path never falls through to
       // state renaming.
-      const tid = getTransId(e.target)
+      const tid = forcedTransId ?? getTransId(e.target)
       if (tid) {
         const t = transRef.current.find(tr => tr.id === tid)
         if (!t) return
@@ -737,7 +863,7 @@ export default function DiagramCanvas({
       }
 
       const w  = toWorld(e.clientX, e.clientY, svg, viewRef.current)
-      const st = hitState(statesRef.current, w.x, w.y)
+      const st = forcedStateId ? statesRef.current.find(state => state.id === forcedStateId) ?? null : hitState(statesRef.current, w.x, w.y)
       if (!st) return
       const vp = toViewport(st.x, st.y, svg, viewRef.current)
       setRenamePopup({ stateId: st.id, screenX: vp.x, screenY: vp.y })
@@ -785,19 +911,21 @@ export default function DiagramCanvas({
       if (e.key === 'Escape') cbSelect.current(null)
     }
 
-    svg.addEventListener('mousedown', onDown)
+    svg.addEventListener('pointerdown', onPointerDown)
     svg.addEventListener('contextmenu', onContextMenu)
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup',   onUp)
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup',   onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
     svg.addEventListener('dblclick', onDbl)
     svg.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('keydown', onKey)
 
     return () => {
-      svg.removeEventListener('mousedown', onDown)
+      svg.removeEventListener('pointerdown', onPointerDown)
       svg.removeEventListener('contextmenu', onContextMenu)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup',   onUp)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup',   onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
       svg.removeEventListener('dblclick', onDbl)
       svg.removeEventListener('wheel', onWheel)
       window.removeEventListener('keydown', onKey)
@@ -1169,8 +1297,9 @@ export default function DiagramCanvas({
             <svg
               ref={mmSvgRef}
               width={MM_W} height={MM_H}
-              onMouseDown={e => {
+              onPointerDown={e => {
                 e.stopPropagation()
+                e.preventDefault()
                 mmDragRef.current = true
                 panToMinimap(e.nativeEvent)
               }}

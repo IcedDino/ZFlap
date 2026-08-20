@@ -374,9 +374,10 @@
   }
 }
 
+/* The editor is touch-capable on small screens; do not block the workspace. */
 @media (max-width: 380px) {
   .smallWarning {
-    display: flex;
+    display: none;
   }
 }
 
@@ -444,3 +445,11 @@
 :global(:root[data-theme='dark']) .statusbar { background: var(--glass); }
 :global(:root[data-theme='dark']) .exportMenu { background: rgba(26, 24, 20, 0.98); }
 :global(:root[data-theme='dark']) .smallWarning { background: rgba(17, 16, 14, 0.97); }
+
+@media (max-width: 640px) {
+  .statusbar {
+    bottom: 74px;
+    max-width: calc(100vw - 24px);
+    overflow: hidden;
+  }
+}
