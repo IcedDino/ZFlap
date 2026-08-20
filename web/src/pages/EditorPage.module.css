@@ -50,6 +50,33 @@
   flex-shrink: 0;
 }
 
+.typeToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.typeToggle:hover {
+  border-color: var(--border-light);
+  color: var(--text);
+  background: var(--bg-card-hover);
+}
+
+.typeLabel {
+  font-size: 11px;
+}
+
 .nameInput {
   flex: 1;
   min-width: 0;

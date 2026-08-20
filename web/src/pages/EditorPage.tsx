@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Download, Upload, Save, Check, Pencil, Play, Share2, User } from 'lucide-react'
+import { Download, Upload, Save, Check, Pencil, Play, Share2, User, Cpu } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
 import DiagramCanvas from '../components/editor/DiagramCanvas'
@@ -8,11 +8,13 @@ import type { View } from '../components/editor/DiagramCanvas'
 import FloatingToolbar from '../components/editor/FloatingToolbar'
 import type { Tool } from '../components/editor/FloatingToolbar'
 import SimPanel from '../components/editor/SimPanel'
+import TmSimPanel from '../components/editor/TmSimPanel'
 import AuthModal from '../components/AuthModal'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAutomaton, classifyAutomaton } from '../hooks/useAutomaton'
 import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
+import { useTmSimulator } from '../hooks/useTmSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
 import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
@@ -20,6 +22,7 @@ import type { Peer, CursorState } from '../lib/realtime'
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
+type AutomatonType = 'fa' | 'tm'
 
 export default function EditorPage() {
   const { id } = useParams<{ id?: string }>()
@@ -29,6 +32,7 @@ export default function EditorPage() {
   const [tool, setTool] = useState<Tool>('select')
   const [name, setName] = useState('Untitled automaton')
   const [mode, setMode] = useState<Mode>('edit')
+  const [automatonType, setAutomatonType] = useState<AutomatonType>('fa')
 
   const [docId, setDocId]       = useState<string | null>(null)
   const [loaded, setLoaded]     = useState(!id)
@@ -292,13 +296,30 @@ export default function EditorPage() {
     automaton.initialId,
   )
 
+  const tmSimulator = useTmSimulator(
+    automaton.states,
+    automaton.transitions,
+    automaton.initialId,
+  )
+
+  const activeSimulator = automatonType === 'tm' ? tmSimulator : simulator
+
+  // Use FA simulator activeIds for FA mode, TM doesn't have activeIds (deterministic)
+  const faActiveIds = automatonType === 'fa' ? simulator.sim.activeIds : undefined
+  const faActiveTransIds = automatonType === 'fa' ? simulator.sim.activeTransIds : undefined
+
   useEffect(() => {
-    if (mode === 'simulate') simulator.reset()
+    if (mode === 'simulate') {
+      if (automatonType === 'tm') tmSimulator.reset()
+      else simulator.reset()
+    }
   }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { label: typeLabel, color: typeColor } = classifyAutomaton(
-    automaton.states, automaton.transitions, automaton.initialId
-  )
+  const { label: typeLabel, color: typeColor } = automatonType === 'tm'
+    ? { label: 'Turing Machine', color: 'orange' as const }
+    : classifyAutomaton(
+        automaton.states, automaton.transitions, automaton.initialId
+      )
 
   const sigma    = [...new Set(automaton.transitions.map(t => t.label).filter(Boolean))].sort()
   const sigmaStr = sigma.length === 0 ? '∅' : `{${sigma.join(', ')}}`
@@ -354,11 +375,14 @@ export default function EditorPage() {
         initialId={automaton.initialId}
         selectedId={automaton.selectedId}
         tool={tool}
-        activeStateIds={mode === 'simulate' ? simulator.sim.activeIds   : undefined}
-        activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
+        activeStateIds={mode === 'simulate' ? (
+          automatonType === 'tm' ? tmSimulator.sim.activeIds : simulator.sim.activeIds
+        ) : undefined}
+        activeTransIds={mode === 'simulate' ? undefined : undefined}
         readOnly={mode === 'simulate'}
         hideMinimap={mode === 'simulate'}
         peers={mergedPeers}
+        tmMode={automatonType === 'tm'}
         onCursorMove={handleCursorMove}
         onAddState={automaton.addState}
         onMoveState={automaton.moveState}
@@ -381,6 +405,15 @@ export default function EditorPage() {
         </Link>
 
         <div className={s.topbarDivider} />
+
+        <button
+          className={s.typeToggle}
+          onClick={() => setAutomatonType(t => t === 'fa' ? 'tm' : 'fa')}
+          title={`Switch to ${automatonType === 'fa' ? 'Turing Machine' : 'Finite Automaton'} mode`}
+        >
+          <Cpu size={13} />
+          <span className={s.typeLabel}>{automatonType === 'fa' ? 'FA' : 'TM'}</span>
+        </button>
 
         <input
           className={s.nameInput}
@@ -470,18 +503,32 @@ export default function EditorPage() {
       />
 
       {/* ── Right sidebar — always mounted, slides in in simulate mode ── */}
-      <SimPanel
-        states={automaton.states}
-        sigma={new Set(automaton.transitions.map(t => t.label).filter(Boolean))}
-        sim={simulator.sim}
-        hidden={mode === 'edit'}
-        onInput={simulator.setInput}
-        onStep={simulator.step}
-        onStepBack={simulator.stepBack}
-        onRun={simulator.run}
-        onReset={simulator.reset}
-        onClose={() => setMode('edit')}
-      />
+      {automatonType === 'tm' ? (
+        <TmSimPanel
+          states={automaton.states}
+          sim={tmSimulator.sim}
+          hidden={mode === 'edit'}
+          onInput={tmSimulator.setInput}
+          onStep={tmSimulator.step}
+          onStepBack={tmSimulator.stepBack}
+          onRun={tmSimulator.run}
+          onReset={tmSimulator.reset}
+          onClose={() => setMode('edit')}
+        />
+      ) : (
+        <SimPanel
+          states={automaton.states}
+          sigma={new Set(automaton.transitions.map(t => t.label).filter(Boolean))}
+          sim={simulator.sim}
+          hidden={mode === 'edit'}
+          onInput={simulator.setInput}
+          onStep={simulator.step}
+          onStepBack={simulator.stepBack}
+          onRun={simulator.run}
+          onReset={simulator.reset}
+          onClose={() => setMode('edit')}
+        />
+      )}
 
       {/* ── Bottom status bar ── */}
       <div className={s.statusbar}>
@@ -505,7 +552,15 @@ export default function EditorPage() {
 
         <span className={s.statusSep} />
 
-        {mode === 'simulate' && simulator.sim.status !== 'idle' ? (
+        {mode === 'simulate' && automatonType === 'tm' && tmSimulator.sim.status !== 'idle' ? (
+          tmSimulator.sim.status === 'accepted' ? (
+            <span className={s.statusChipGreen}>✓ Accepted</span>
+          ) : tmSimulator.sim.status === 'halted' ? (
+            <span className={s.simRejected}>✕ Halted</span>
+          ) : (
+            <span>Step {tmSimulator.sim.log.length} · Head: {tmSimulator.sim.head}</span>
+          )
+        ) : mode === 'simulate' && automatonType === 'fa' && simulator.sim.status !== 'idle' ? (
           simulator.sim.status === 'accepted' ? (
             <span className={s.statusChipGreen}>✓ Simulation complete — accepted</span>
           ) : simulator.sim.status === 'rejected' ? (

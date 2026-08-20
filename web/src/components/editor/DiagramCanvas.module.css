@@ -133,6 +133,22 @@
   color: var(--text);
 }
 
+.popupDir {
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 4px;
+  outline: none;
+  cursor: pointer;
+}
+.popupDir:focus {
+  border-color: var(--orange);
+}
+
 /* ── Mobile adjustments ──────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {

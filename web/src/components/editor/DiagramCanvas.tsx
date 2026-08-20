@@ -216,6 +216,7 @@ interface Props {
   readOnly?:        boolean
   hideMinimap?:     boolean
   peers?:           PeerCursor[]
+  tmMode?:          boolean
   onAddState:         (x: number, y: number) => void
   onMoveState:        (id: string, x: number, y: number) => void
   onDeleteState:      (id: string) => void
@@ -234,7 +235,7 @@ interface Props {
 
 export default function DiagramCanvas({
   states, transitions, initialId, selectedId, tool,
-  activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
+  activeStateIds, activeTransIds, readOnly, hideMinimap, peers, tmMode,
   onAddState, onMoveState, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
   onAddTransition, onDeleteTransition, onSelect, onDeleteSelected,
   onViewChange, onCursorMove,
@@ -285,6 +286,9 @@ export default function DiagramCanvas({
   const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
   const pinchRef   = useRef<{ startDist: number; startZoom: number } | null>(null)
 
+  // TM mode ref
+  const tmModeRef = useRef(tmMode ?? false)
+
   statesRef.current     = states
   transRef.current      = transitions
   selectedRef.current   = selectedId
@@ -301,12 +305,18 @@ export default function DiagramCanvas({
   cbDelSelected.current = onDeleteSelected
   readOnlyRef.current   = readOnly ?? false
   activeIdsRef.current  = activeStateIds
+  tmModeRef.current     = tmMode ?? false
 
   // React state for visuals that need a re-render
   const [transDrag, setTransDrag] = useState<TransitionDragState | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [popup, setPopup]         = useState<Popup>({ visible: false, screenX: 0, screenY: 0, fromId: '', toId: '' })
   const [labelDraft, setLabelDraft] = useState('')
+
+  // TM transition popup fields
+  const [tmRead, setTmRead]       = useState('')
+  const [tmWrite, setTmWrite]     = useState('')
+  const [tmDir, setTmDir]         = useState<'L' | 'R' | 'S'>('R')
 
   interface RenamePopup { stateId: string; screenX: number; screenY: number }
   const [renamePopup, setRenamePopup] = useState<RenamePopup | null>(null)
@@ -790,9 +800,15 @@ export default function DiagramCanvas({
 
   const confirmLabel = useCallback(() => {
     if (!popup.visible) return
-    cbAddTrans.current(popup.fromId, popup.toId, labelDraft.trim() || 'ε')
+    if (tmModeRef.current) {
+      const read = tmRead.trim() || '_'
+      const write = tmWrite.trim() || '_'
+      cbAddTrans.current(popup.fromId, popup.toId, `${read}→${write},${tmDir}`)
+    } else {
+      cbAddTrans.current(popup.fromId, popup.toId, labelDraft.trim() || 'ε')
+    }
     setPopup(p => ({ ...p, visible: false }))
-  }, [popup, labelDraft])
+  }, [popup, labelDraft, tmRead, tmWrite, tmDir])
 
   const cancelLabel = useCallback(() => setPopup(p => ({ ...p, visible: false })), [])
 
@@ -1130,21 +1146,65 @@ export default function DiagramCanvas({
           className={s.popup}
           style={{ left: popup.screenX, top: popup.screenY }}
         >
-          <span className={s.popupHint}>Transition label</span>
-          <input
-            ref={labelRef}
-            className={s.popupInput}
-            value={labelDraft}
-            onChange={e => setLabelDraft(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
-              if (e.key === 'Escape') { e.preventDefault(); cancelLabel()  }
-              e.stopPropagation()
-            }}
-            placeholder="ε"
-            maxLength={8}
-            spellCheck={false}
-          />
+          {tmModeRef.current ? (
+            <>
+              <span className={s.popupHint}>Transition</span>
+              <input
+                className={s.popupInput}
+                value={tmRead}
+                onChange={e => setTmRead(e.target.value.slice(0, 1))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); confirmLabel() }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelLabel() }
+                  e.stopPropagation()
+                }}
+                placeholder="read"
+                maxLength={1}
+                spellCheck={false}
+              />
+              <span className={s.popupHint}>→</span>
+              <input
+                className={s.popupInput}
+                value={tmWrite}
+                onChange={e => setTmWrite(e.target.value.slice(0, 1))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); confirmLabel() }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelLabel() }
+                  e.stopPropagation()
+                }}
+                placeholder="write"
+                maxLength={1}
+                spellCheck={false}
+              />
+              <select
+                className={s.popupDir}
+                value={tmDir}
+                onChange={e => setTmDir(e.target.value as 'L' | 'R' | 'S')}
+              >
+                <option value="R">R</option>
+                <option value="L">L</option>
+                <option value="S">S</option>
+              </select>
+            </>
+          ) : (
+            <>
+              <span className={s.popupHint}>Transition label</span>
+              <input
+                ref={labelRef}
+                className={s.popupInput}
+                value={labelDraft}
+                onChange={e => setLabelDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  { e.preventDefault(); confirmLabel() }
+                  if (e.key === 'Escape') { e.preventDefault(); cancelLabel()  }
+                  e.stopPropagation()
+                }}
+                placeholder="ε"
+                maxLength={8}
+                spellCheck={false}
+              />
+            </>
+          )}
           <button className={s.popupOk}     onClick={confirmLabel}>Add</button>
           <button className={s.popupCancel} onClick={cancelLabel}>✕</button>
         </div>
