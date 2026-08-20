@@ -1022,7 +1022,6 @@ export default function DiagramCanvas({
 
           {/* ── States ── */}
           {states.map(st => {
-            const isSel      = st.id === selectedId
             const isMultiSel  = selectedIdsRef.current.has(st.id)
             const isInit     = st.id === initialId
             const isHov      = st.id === hoveredId
