@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Download, Upload, Save, Check, Pencil, Play, Share2, User } from 'lucide-react'
+import { Download, Upload, Save, Check, Pencil, Play, Share2, User, ChevronDown, FileJson, Image as ImageIcon, FileText } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
 import DiagramCanvas from '../components/editor/DiagramCanvas'
@@ -17,6 +17,7 @@ import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
 import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
 import type { Peer, CursorState } from '../lib/realtime'
+import { downloadAutomatonJson, downloadAutomatonPng, downloadAutomatonPdf } from '../lib/automatonExport'
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
@@ -37,6 +38,7 @@ export default function EditorPage() {
   const [saving, setSaving]     = useState(false)
   const [copied, setCopied]     = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const [peers, setPeers]       = useState<{ id: string; color: string; initial: string; name: string }[]>([])
@@ -184,10 +186,25 @@ export default function EditorPage() {
   handleSaveRef.current = handleSave
 
   const handleShare = useCallback(async () => {
-    if (!docId) return
     try {
-      if (!isPublic) { await setPublic(docId, true); setIsPublic(true) }
-      await navigator.clipboard.writeText(`${location.origin}/editor/${docId}`)
+      let shareId = docId
+
+      // A new unsaved automaton has no URL yet. If the user is signed in,
+      // create it first; otherwise the existing auth flow is used.
+      if (!shareId) {
+        if (!user) {
+          setAuthOpen(true)
+          return
+        }
+        const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+        const row = await create(name, payload)
+        shareId = row.id
+        setDocId(row.id)
+        navigate(`/editor/${row.id}`, { replace: true })
+      }
+
+      if (!isPublic) { await setPublic(shareId, true); setIsPublic(true) }
+      await navigator.clipboard.writeText(`${location.origin}/editor/${shareId}`)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch (err) {
@@ -195,17 +212,21 @@ export default function EditorPage() {
       setErrorToast("Couldn't create a share link — try again.")
       setTimeout(() => setErrorToast(null), 3000)
     }
-  }, [docId, isPublic])
+  }, [docId, isPublic, user, name, automaton.states, automaton.transitions, automaton.initialId, navigate])
 
-  const handleExport = useCallback(() => {
-    const payload = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${name || 'automaton'}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+  const exportModel = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId }
+
+  const runExport = useCallback(async (kind: 'json' | 'png' | 'pdf') => {
+    setExportOpen(false)
+    try {
+      if (kind === 'json') downloadAutomatonJson(exportModel)
+      else if (kind === 'png') await downloadAutomatonPng(exportModel)
+      else await downloadAutomatonPdf(exportModel)
+    } catch (err) {
+      console.error(err)
+      setErrorToast(err instanceof Error ? err.message : 'Export failed.')
+      setTimeout(() => setErrorToast(null), 3000)
+    }
   }, [name, automaton.states, automaton.transitions, automaton.initialId])
 
   const handleImportFile = useCallback((file: File) => {
@@ -285,6 +306,15 @@ export default function EditorPage() {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     if (moveThrottleTimer.current) clearTimeout(moveThrottleTimer.current)
   }, [])
+
+  useEffect(() => {
+    if (!exportOpen) return
+    const close = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('[data-export-menu]')) setExportOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [exportOpen])
 
   const simulator = useSimulator(
     automaton.states,
@@ -367,6 +397,7 @@ export default function EditorPage() {
         onRenameState={automaton.renameState}
         onSetInitial={automaton.setInitial}
         onAddTransition={automaton.addTransition}
+        onEditTransition={automaton.editTransition}
         onDeleteTransition={automaton.deleteTransition}
         onSelect={automaton.select}
         onDeleteSelected={automaton.deleteSelected}
@@ -429,7 +460,7 @@ export default function EditorPage() {
         >
           {saving ? <>Saving…</> : isSaved ? <><Check size={14} /> Saved</> : <><Save size={14} /> Save</>}
         </button>
-        <button className={s.topbarBtn} onClick={handleShare} disabled={!docId}>
+        <button className={s.topbarBtn} onClick={handleShare}>
           <Share2 size={14} /> {copied ? 'Copied!' : 'Share'}
         </button>
         <button className={s.topbarBtn} onClick={() => importInputRef.current?.click()}>
@@ -446,9 +477,29 @@ export default function EditorPage() {
             e.target.value = ''
           }}
         />
-        <button className={s.topbarBtnPrimary} onClick={handleExport}>
-          <Download size={14} /> Export
-        </button>
+        <div className={s.exportWrap} data-export-menu>
+          <button
+            className={s.topbarBtnPrimary}
+            onClick={() => setExportOpen(open => !open)}
+            aria-haspopup="menu"
+            aria-expanded={exportOpen}
+          >
+            <Download size={14} /> Export <ChevronDown size={13} />
+          </button>
+          {exportOpen && (
+            <div className={s.exportMenu} role="menu">
+              <button className={s.exportMenuItem} onClick={() => runExport('json')} role="menuitem">
+                <FileJson size={15} /> <span>Automaton (.json)</span>
+              </button>
+              <button className={s.exportMenuItem} onClick={() => runExport('png')} disabled={automaton.states.length === 0} role="menuitem">
+                <ImageIcon size={15} /> <span>Automaton image (.png)</span>
+              </button>
+              <button className={s.exportMenuItem} onClick={() => runExport('pdf')} disabled={automaton.states.length === 0} role="menuitem">
+                <FileText size={15} /> <span>Automaton PDF (.pdf)</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {!user && (
           <>

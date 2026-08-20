@@ -13,11 +13,21 @@ export interface FAState {
   isFinal: boolean
 }
 
+export type FATransitionKind = 'symbol' | 'range'
+
 export interface FATransition {
-  id:     string
-  fromId: string
-  toId:   string
-  label:  string
+  id:         string
+  fromId:     string
+  toId:       string
+  label:      string
+  /**
+   * `symbol` is the legacy/default representation. `range` keeps one
+   * visual/semantic transition while matching every character in the range.
+   * Older saved automata may omit this field; they are treated as symbols.
+   */
+  kind?:      FATransitionKind
+  rangeStart?: string
+  rangeEnd?:   string
 }
 
 interface AutomatonData {
@@ -34,7 +44,8 @@ type Action =
   | { type: 'TOGGLE_FINAL'; id: string }
   | { type: 'RENAME_STATE'; id: string; label: string }
   | { type: 'SET_INITIAL';  id: string | null }
-  | { type: 'ADD_TRANSITION';    id: string; fromId: string; toId: string; label: string }
+  | { type: 'ADD_TRANSITION';    id: string; fromId: string; toId: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
+  | { type: 'EDIT_TRANSITION';   id: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
   | { type: 'DELETE_TRANSITION'; id: string }
   | { type: 'SELECT';            id: string | null }
   | { type: 'DELETE_SELECTED' }
@@ -111,7 +122,24 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
         transitions: [...data.transitions, {
           id: action.id, fromId: action.fromId,
           toId: action.toId, label: action.label,
+          kind: action.kind, rangeStart: action.rangeStart, rangeEnd: action.rangeEnd,
         }],
+      }
+
+    case 'EDIT_TRANSITION':
+      return {
+        ...data,
+        transitions: data.transitions.map(t =>
+          t.id === action.id
+            ? {
+                ...t,
+                label: action.label,
+                kind: action.kind,
+                rangeStart: action.rangeStart,
+                rangeEnd: action.rangeEnd,
+              }
+            : t
+        ),
       }
 
     case 'DELETE_TRANSITION':
@@ -248,10 +276,45 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     onActionRef.current?.(action)
   }, [])
 
-  const addTransition = useCallback((fromId: string, toId: string, label: string) => {
-    const action: RemoteAction = { type: 'ADD_TRANSITION', id: crypto.randomUUID(), fromId, toId, label }
+  const addTransition = useCallback((
+    fromId: string,
+    toId: string,
+    label: string,
+    kind: FATransitionKind = 'symbol',
+    rangeStart?: string,
+    rangeEnd?: string,
+  ) => {
+    const action: RemoteAction = {
+      type: 'ADD_TRANSITION',
+      id: crypto.randomUUID(),
+      fromId,
+      toId,
+      label,
+      kind,
+      rangeStart,
+      rangeEnd,
+    }
     dispatch(action)
     dispatch({ type: 'SELECT', id: action.id }) // local-only, never broadcast
+    onActionRef.current?.(action)
+  }, [])
+
+  const editTransition = useCallback((
+    id: string,
+    label: string,
+    kind: FATransitionKind = 'symbol',
+    rangeStart?: string,
+    rangeEnd?: string,
+  ) => {
+    const action: RemoteAction = {
+      type: 'EDIT_TRANSITION',
+      id,
+      label,
+      kind,
+      rangeStart,
+      rangeEnd,
+    }
+    dispatch(action)
     onActionRef.current?.(action)
   }, [])
 
@@ -297,6 +360,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     renameState,
     setInitial,
     addTransition,
+    editTransition,
     deleteTransition,
     select,
     deleteSelected,
@@ -307,23 +371,64 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
 
 export type UseAutomatonReturn = ReturnType<typeof useAutomaton>
 
+// ── Range helpers ─────────────────────────────────────────────────────────────
+
+export function isRangeKind(t: FATransition): boolean {
+  return t.kind === 'range' && !!t.rangeStart && !!t.rangeEnd
+}
+
+export function transitionMatchesSymbol(t: FATransition, symbol: string): boolean {
+  if (isRangeKind(t)) {
+    const start = t.rangeStart!.charCodeAt(0)
+    const end   = t.rangeEnd!.charCodeAt(0)
+    const code  = symbol.charCodeAt(0)
+    return symbol.length === 1 && start <= code && code <= end
+  }
+  return t.label === symbol
+}
+
+function rangeCharacters(t: FATransition): string[] {
+  if (!isRangeKind(t)) return []
+  const start = t.rangeStart!.charCodeAt(0)
+  const end   = t.rangeEnd!.charCodeAt(0)
+  const chars: string[] = []
+  for (let code = start; code <= end; code++) chars.push(String.fromCharCode(code))
+  return chars
+}
+
+function transitionCharacterSet(t: FATransition): Set<string> {
+  if (isRangeKind(t)) return new Set(rangeCharacters(t))
+  return (t.label === 'ε' || t.label === '') ? new Set() : new Set([t.label])
+}
+
+function rangesOverlap(a: FATransition, b: FATransition): boolean {
+  const aSet = transitionCharacterSet(a)
+  const bSet = transitionCharacterSet(b)
+  for (const symbol of aSet) if (bSet.has(symbol)) return true
+  return false
+}
+
 // ── Classification helper ─────────────────────────────────────────────────────
 
 export function classifyAutomaton(
   states: FAState[], transitions: FATransition[], initialId: string | null
 ): { label: string; color: 'green' | 'orange' | 'dim' } {
-  if (states.length === 0)  return { label: 'Empty',          color: 'dim'    }
-  if (!initialId)           return { label: 'No initial state', color: 'dim'  }
+  if (states.length === 0)  return { label: 'Empty',            color: 'dim'    }
+  if (!initialId)           return { label: 'No initial state', color: 'dim'    }
 
   const hasEps = transitions.some(t => t.label === 'ε' || t.label === '')
   if (hasEps) return { label: 'ε-NFA', color: 'orange' }
 
-  const syms = [...new Set(transitions.map(t => t.label))]
-  const isNFA = states.some(st =>
-    syms.some(sym =>
-      transitions.filter(t => t.fromId === st.id && t.label === sym).length > 1
-    )
-  )
+  const isNFA = states.some(st => {
+    const outgoing = transitions.filter(t => t.fromId === st.id)
+    for (let i = 0; i < outgoing.length; i++) {
+      for (let j = i + 1; j < outgoing.length; j++) {
+        if (rangesOverlap(outgoing[i], outgoing[j])) return true
+      }
+    }
+    return false
+  })
+
   return isNFA
     ? { label: 'NFA', color: 'orange' }
     : { label: 'DFA', color: 'green'  }
