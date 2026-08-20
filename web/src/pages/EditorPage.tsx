@@ -16,7 +16,7 @@ import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
-import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId } from '../lib/realtime'
+import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId, createPresenceId } from '../lib/realtime'
 import type { Peer, CursorState } from '../lib/realtime'
 import { downloadAutomatonJson, downloadAutomatonPng, downloadAutomatonPdf } from '../lib/automatonExport'
 import s from './EditorPage.module.css'
@@ -52,6 +52,7 @@ export default function EditorPage() {
   const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const myColorRef      = useRef(randomPeerColor())
   const clientIdRef     = useRef(createClientId())
+  const presenceIdRef   = useRef(createPresenceId())
   const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
   const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
 
@@ -133,7 +134,7 @@ export default function EditorPage() {
   function handleCursorMove(x: number, y: number) {
     lastCursorRef.current = { x, y }
     if (channelRef.current) {
-      broadcastCursor(channelRef.current, clientIdRef.current, { x, y, selectedId: automaton.selectedId })
+      broadcastCursor(channelRef.current, clientIdRef.current, presenceIdRef.current, { x, y, selectedId: automaton.selectedId })
     }
   }
 
@@ -268,6 +269,7 @@ export default function EditorPage() {
     if (!docId || !isPublic) return
     const channel = joinAutomatonChannel(docId, {
       clientId: clientIdRef.current,
+      presenceId: presenceIdRef.current,
       getPresence: () => ({ color: myColorRef.current, initial: myIdentity.initial, name: myIdentity.name }),
       onAction: automaton.applyRemote,
       onPresence: newPeers => {
@@ -299,7 +301,7 @@ export default function EditorPage() {
   // cursor move, over the same broadcast channel cursor position uses.
   useEffect(() => {
     if (!channelRef.current) return
-    broadcastCursor(channelRef.current, clientIdRef.current, {
+    broadcastCursor(channelRef.current, clientIdRef.current, presenceIdRef.current, {
       x: lastCursorRef.current?.x ?? null,
       y: lastCursorRef.current?.y ?? null,
       selectedId: automaton.selectedId,
