@@ -1,5 +1,7 @@
 # ZFlap - Automaton Visualization and Simulation
 
+**Try it online: [zflap.floresr.com](https://zflap.floresr.com)**
+
 ## Overview
 
 ZFlap is a C++17 desktop application for finite automaton theory education and visualization. It provides both a graphical Qt6-based interface and a reusable core library for working with:
@@ -7,6 +9,29 @@ ZFlap is a C++17 desktop application for finite automaton theory education and v
 - **Pushdown Automata** (PDA)
 - **Turing Machines** (TM)
 - **Lexical and Syntactic Analyzers**
+
+## Web App (New!)
+
+ZFlap also ships with a full web version — a React + TypeScript + Vite application available at **[zflap.floresr.com](https://zflap.floresr.com)**.
+
+### Web Features
+- **Visual Editor**: Drag-and-drop states and transitions on an infinite pan/zoom canvas, with minimap, group selection and collision handling
+- **Simulator**: Step-by-step execution with play/pause, speed control, step-back, computation trace and tape visualization
+- **Turing Machines**: Dedicated TM mode with tape simulation (`read/write,move` transitions)
+- **Regular Expressions**: Regex workspace with integrated matching simulator
+- **Real-time Collaboration**: Share a link and co-edit live (presence avatars, remote cursors, anonymous guest identities) powered by Supabase Realtime
+- **Cloud Documents**: Save automatons to your account, share public links
+- **Import/Export**: JSON import/export plus PNG image and PDF export of the diagram
+- **Dark Mode**: Light/dark theme toggle
+- **Mobile Ready**: Touch gestures, responsive layout and thumb-reach controls
+
+### Running the Web App Locally
+
+```bash
+cd web
+npm install
+npm run dev
+```
 
 ## Recent Architecture Improvements
 
@@ -59,7 +84,8 @@ ZFlap/
 │   └── main.cpp
 ├── test/               # Unit tests
 ├── examples/           # Usage examples
-└── docs/              # Documentation
+├── web/                # Web app (React + TypeScript + Vite) — zflap.floresr.com
+└── docs/               # Documentation
 ```
 
 ## Usage Example
