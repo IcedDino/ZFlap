@@ -20,6 +20,7 @@ export default function DotCanvas({ viewRef }: Props) {
     const ctx    = canvas.getContext('2d')!
     let raf: number
     const mouse = { x: -99999, y: -99999 }
+    let dotColor = getComputedStyle(document.documentElement).getPropertyValue('--grid-dot').trim() || 'rgba(26,24,20,0.20)'
 
     // Per-dot spring displacement, keyed by "wx,wy" world position
     const springs = new Map<string, { dx: number; dy: number }>()
@@ -86,7 +87,14 @@ export default function DotCanvas({ viewRef }: Props) {
 
           if (alpha < 0.004 || r < 0.15) continue
 
-          ctx.fillStyle = `rgba(26,24,20,${alpha.toFixed(3)})`
+          const match = dotColor.match(/rgba?\(([^)]+)\)/)
+          if (match) {
+            const parts = match[1].split(',').map(part => part.trim())
+            ctx.fillStyle = `rgba(${parts[0]},${parts[1]},${parts[2]},${alpha.toFixed(3)})`
+          } else {
+            ctx.fillStyle = dotColor
+          }
+
           ctx.beginPath()
           ctx.arc(cx, cy, r, 0, Math.PI * 2)
           ctx.fill()
@@ -108,12 +116,17 @@ export default function DotCanvas({ viewRef }: Props) {
 
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
+    const themeObserver = new MutationObserver(() => {
+      dotColor = getComputedStyle(document.documentElement).getPropertyValue('--grid-dot').trim() || 'rgba(26,24,20,0.20)'
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     resize()
     draw()
 
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
+      themeObserver.disconnect()
       window.removeEventListener('mousemove', onMove)
       document.documentElement.removeEventListener('mouseleave', onLeave)
     }

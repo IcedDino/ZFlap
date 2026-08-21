@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
-import type { FAState, FATransition } from './useAutomaton'
+import type { FAState, FATransition, AutomatonType } from './useAutomaton'
+import { transitionMatchesSymbol } from './useAutomaton'
 
 export type SimStatus = 'idle' | 'running' | 'accepted' | 'rejected'
 
@@ -15,11 +16,31 @@ interface HistoryEntry {
   activeIds:      Set<string>
   activeTransIds: Set<string>
   status:         SimStatus
+  tape:           string[]
+  tmConfigs:      TMConfig[]
+  tmHead:         number
+  tmStateId:      string | null
+  tmTapeOrigin:   number
+  regex:          string
+  regexError:     string | null
+}
+
+export interface TMConfig {
+  stateId: string
+  head: number
+  tape: Record<number, string>
 }
 
 export interface SimState {
   input:          string
   head:           number
+  tape:           string[]
+  tmConfigs:      TMConfig[]
+  tmHead:         number
+  tmStateId:      string | null
+  tmTapeOrigin:   number
+  regex:          string
+  regexError:     string | null
   activeIds:      Set<string>
   activeTransIds: Set<string>   // transitions that fired on the last step
   status:         SimStatus
@@ -48,7 +69,7 @@ function moveOn(ids: Set<string>, symbol: string, transitions: FATransition[]): 
   const next = new Set<string>()
   for (const id of ids) {
     for (const t of transitions) {
-      if (t.fromId === id && t.label === symbol) next.add(t.toId)
+      if (t.fromId === id && transitionMatchesSymbol(t, symbol)) next.add(t.toId)
     }
   }
   return next
@@ -61,7 +82,7 @@ function firedOnSymbol(
   const fired = new Set<string>()
   for (const id of fromIds) {
     for (const t of transitions) {
-      if (t.fromId === id && t.label === symbol) fired.add(t.id)
+      if (t.fromId === id && transitionMatchesSymbol(t, symbol)) fired.add(t.id)
     }
   }
   return fired
@@ -102,21 +123,86 @@ function deriveStatus(
 }
 
 function makeInitial(
-  input: string, initialId: string | null, transitions: FATransition[],
+  input: string, initialId: string | null, transitions: FATransition[], initialRegex = '',
 ): SimState {
   if (!initialId) {
-    return { input, head: 0, activeIds: new Set(), activeTransIds: new Set(), status: 'idle', log: [], history: [] }
+    return {
+      input, head: 0, activeIds: new Set(), activeTransIds: new Set(), status: 'idle',
+      log: [], history: [], tape: input.split(''), tmConfigs: [], tmHead: 0, tmStateId: null, tmTapeOrigin: 0,
+      regex: initialRegex, regexError: null,
+    }
   }
   const initial = epsClosure(new Set([initialId]), transitions)
   const initEps = firedEps(new Set([initialId]), transitions)
   return {
     input, head: 0,
-    activeIds:      initial,
+    activeIds: initial,
     activeTransIds: initEps,
-    status:         'running',
+    status: 'running',
     log: [{ symbol: null, fromIds: [], toIds: [...initial], transIds: [...initEps] }],
     history: [],
+    tape: input.split(''), tmConfigs: [], tmHead: 0, tmStateId: initialId, tmTapeOrigin: 0,
+    regex: initialRegex, regexError: null,
   }
+}
+
+function parseTmTransition(t: FATransition): { read: string; write: string; move: -1 | 0 | 1 } | null {
+  const match = t.label.trim().match(/^(.+?)\s*\/\s*(.+?)\s*,\s*([LRNS])$/i)
+  if (!match) return null
+  const read = match[1].trim()
+  const write = match[2].trim()
+  if (read.length !== 1 || write.length !== 1) return null
+  const move = match[3].toUpperCase() === 'L' ? -1 : match[3].toUpperCase() === 'R' ? 1 : 0
+  return { read, write, move }
+}
+
+function cloneConfig(c: TMConfig): TMConfig {
+  return { stateId: c.stateId, head: c.head, tape: { ...c.tape } }
+}
+
+function tmInitial(input: string, initialId: string | null): TMConfig[] {
+  if (!initialId) return []
+  const tape: Record<number, string> = {}
+  for (let i = 0; i < input.length; i++) tape[i] = input[i]
+  return [{ stateId: initialId, head: 0, tape }]
+}
+
+function tmStep(configs: TMConfig[], transitions: FATransition[], finals: Set<string>, deterministic: boolean) {
+  const next: TMConfig[] = []
+  const fired = new Set<string>()
+  let accepted = false
+  let moved = false
+  for (const config of configs) {
+    if (finals.has(config.stateId)) {
+      accepted = true
+      continue
+    }
+    const read = config.tape[config.head] ?? '_'
+    const choices = transitions.filter(t => {
+      if (t.fromId !== config.stateId) return false
+      const parsed = parseTmTransition(t)
+      return !!parsed && parsed.read === read
+    })
+    if (choices.length === 0) {
+      if (finals.has(config.stateId)) accepted = true
+      continue
+    }
+    const usable = deterministic ? choices.slice(0, 1) : choices
+    for (const t of usable) {
+      const parsed = parseTmTransition(t)!
+      const copy = cloneConfig(config)
+      copy.tape[copy.head] = parsed.write
+      copy.head += parsed.move
+      copy.stateId = t.toId
+      next.push(copy)
+      fired.add(t.id)
+      moved = true
+      if (finals.has(copy.stateId)) accepted = true
+      if (next.length >= 128) break
+    }
+    if (next.length >= 128) break
+  }
+  return { next, fired, accepted, moved }
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -125,27 +211,77 @@ export function useSimulator(
   states:      FAState[],
   transitions: FATransition[],
   initialId:   string | null,
+  automatonType: AutomatonType = 'dfa',
+  initialRegex = '',
 ) {
   const [sim, setSim] = useState<SimState>(() =>
-    makeInitial('', initialId, transitions)
+    makeInitial('', initialId, transitions, initialRegex)
   )
 
   const setInput = useCallback((input: string) => {
-    setSim(makeInitial(input, initialId, transitions))
-  }, [initialId, transitions])
+    setSim(prev => ({
+      ...makeInitial(input, initialId, transitions, prev.regex),
+      regex: prev.regex,
+      regexError: prev.regexError,
+      status: automatonType === 'regex'
+        ? (prev.regexError ? 'idle' : 'running')
+        : 'running',
+    }))
+  }, [initialId, transitions, automatonType])
+
+  const setRegex = useCallback((regex: string) => {
+    let error: string | null = null
+    if (regex.trim()) {
+      try { new RegExp(`^(?:${regex})$`) } catch (err) { error = err instanceof Error ? err.message : 'Invalid regular expression' }
+    }
+    setSim(prev => ({ ...prev, regex, regexError: error, status: error ? 'idle' : prev.status }))
+  }, [])
 
   const reset = useCallback(() => {
-    setSim(prev => makeInitial(prev.input, initialId, transitions))
-  }, [initialId, transitions])
+    setSim(prev => {
+      const input = automatonType === 'regex' ? '' : prev.input
+      return {
+        ...makeInitial(input, initialId, transitions, prev.regex),
+        regex: prev.regex,
+        regexError: prev.regexError,
+      }
+    })
+  }, [initialId, transitions, automatonType])
 
   const step = useCallback(() => {
     setSim(prev => {
+      if (automatonType === 'regex') {
+        if (!prev.regex.trim()) return { ...prev, status: 'idle' }
+        if (prev.regexError) return prev
+        try {
+          const accepted = new RegExp(`^(?:${prev.regex})$`).test(prev.input)
+          return { ...prev, status: accepted ? 'accepted' : 'rejected', head: prev.input.length }
+        } catch (err) {
+          return { ...prev, status: 'idle', regexError: err instanceof Error ? err.message : 'Invalid regular expression' }
+        }
+      }
+      if (automatonType.startsWith('tm-')) {
+        if (prev.status !== 'running') return prev
+        const finals = new Set(states.filter(s => s.isFinal).map(s => s.id))
+        const result = tmStep(prev.tmConfigs.length ? prev.tmConfigs : tmInitial(prev.input, initialId), transitions, finals, automatonType === 'tm-deterministic')
+        const nextConfigs = result.next
+        const activeIds = new Set(nextConfigs.map(c => c.stateId))
+        const first = nextConfigs[0]
+        const status = result.accepted ? 'accepted' : result.moved ? 'running' : 'rejected'
+        const tapeKeys = first ? Object.keys(first.tape).map(Number) : []
+        const tapeMin = tapeKeys.length ? Math.min(...tapeKeys) : prev.tmTapeOrigin
+        const tapeMax = tapeKeys.length ? Math.max(...tapeKeys) : prev.tmTapeOrigin
+        const tape = first ? Array.from({ length: tapeMax - tapeMin + 1 }, (_, i) => first.tape[tapeMin + i] ?? '_') : prev.tape
+        return { ...prev, tmConfigs: nextConfigs, activeIds, activeTransIds: result.fired, tmHead: first?.head ?? prev.tmHead, tmStateId: first?.stateId ?? prev.tmStateId, tmTapeOrigin: first ? tapeMin : prev.tmTapeOrigin, tape, status, head: prev.head + 1, log: [...prev.log, { symbol: prev.tape[prev.tmHead] ?? '_', fromIds: [...prev.activeIds], toIds: [...activeIds], transIds: [...result.fired] }], history: [...prev.history, { head: prev.head, activeIds: prev.activeIds, activeTransIds: prev.activeTransIds, status: prev.status, tape: prev.tape, tmConfigs: prev.tmConfigs, tmHead: prev.tmHead, tmStateId: prev.tmStateId, tmTapeOrigin: prev.tmTapeOrigin, regex: prev.regex, regexError: prev.regexError }] }
+      }
       if (prev.status !== 'running') return prev
 
       // Save current state to history
       const snap: HistoryEntry = {
         head: prev.head, activeIds: prev.activeIds,
         activeTransIds: prev.activeTransIds, status: prev.status,
+        tape: prev.tape, tmConfigs: prev.tmConfigs, tmHead: prev.tmHead,
+        tmStateId: prev.tmStateId, tmTapeOrigin: prev.tmTapeOrigin, regex: prev.regex, regexError: prev.regexError,
       }
 
       // Empty-string test: all input consumed, just resolve
@@ -176,7 +312,7 @@ export function useSimulator(
         history: [...prev.history, snap],
       }
     })
-  }, [transitions, states])
+  }, [transitions, states, automatonType, initialId])
 
   const stepBack = useCallback(() => {
     setSim(prev => {
@@ -188,6 +324,12 @@ export function useSimulator(
         activeIds:      last.activeIds,
         activeTransIds: last.activeTransIds,
         status:         last.status,
+        tape:           last.tape,
+        tmConfigs:      last.tmConfigs,
+        tmHead:         last.tmHead,
+        tmStateId:      last.tmStateId,
+        regex:          last.regex,
+        regexError:     last.regexError,
         log:            prev.log.slice(0, -1),
         history:        prev.history.slice(0, -1),
       }
@@ -196,6 +338,47 @@ export function useSimulator(
 
   const run = useCallback(() => {
     setSim(prev => {
+      if (automatonType === 'regex') {
+        if (!prev.regex.trim() || prev.regexError) return prev
+        try {
+          const accepted = new RegExp(`^(?:${prev.regex})$`).test(prev.input)
+          return { ...prev, status: accepted ? 'accepted' : 'rejected', head: prev.input.length }
+        } catch (err) {
+          return { ...prev, status: 'idle', regexError: err instanceof Error ? err.message : 'Invalid regular expression' }
+        }
+      }
+      if (automatonType.startsWith('tm-')) {
+        if (prev.status !== 'running') return prev
+        let current = prev.tmConfigs.length ? prev.tmConfigs : tmInitial(prev.input, initialId)
+        let activeTransIds = prev.activeTransIds
+        let head = prev.head
+        let activeIds = new Set(current.map(c => c.stateId))
+        const log = [...prev.log]
+        let status: SimStatus = 'running'
+        const finals = new Set(states.filter(s => s.isFinal).map(s => s.id))
+        for (let i = 0; i < 2048 && current.length > 0; i++) {
+          const result = tmStep(current, transitions, finals, automatonType === 'tm-deterministic')
+          activeTransIds = result.fired
+          const next = result.next
+          activeIds = new Set(next.map(c => c.stateId))
+          log.push({
+            symbol: current[0] ? (current[0].tape[current[0].head] ?? '_') : '_',
+            fromIds: [...activeIds],
+            toIds: [...new Set(next.map(c => c.stateId))],
+            transIds: [...result.fired],
+          })
+          head++
+          if (result.accepted) { status = 'accepted'; current = next; break }
+          if (!result.moved) { status = 'rejected'; current = []; break }
+          current = next
+        }
+        const first = current[0]
+        const tapeKeys = first ? Object.keys(first.tape).map(Number) : []
+        const tapeMin = tapeKeys.length ? Math.min(...tapeKeys) : prev.tmTapeOrigin
+        const tapeMax = tapeKeys.length ? Math.max(...tapeKeys) : prev.tmTapeOrigin
+        const tape = first ? Array.from({ length: tapeMax - tapeMin + 1 }, (_, i) => first.tape[tapeMin + i] ?? '_') : prev.tape
+        return { ...prev, tmConfigs: current, activeIds, activeTransIds, tmHead: first?.head ?? prev.tmHead, tmStateId: first?.stateId ?? prev.tmStateId, tmTapeOrigin: first ? tapeMin : prev.tmTapeOrigin, tape, head, log, status }
+      }
       if (prev.status !== 'running') return prev
 
       let { head, activeIds, input } = prev
@@ -214,7 +397,7 @@ export function useSimulator(
         const closed = epsClosure(moved, transitions)
         const fired  = computeFired(activeIds, symbol, transitions)
 
-        history.push({ head, activeIds, activeTransIds, status: 'running' })
+        history.push({ head, activeIds, activeTransIds, status: 'running', tape: prev.tape, tmConfigs: prev.tmConfigs, tmHead: prev.tmHead, tmStateId: prev.tmStateId, tmTapeOrigin: prev.tmTapeOrigin, regex: prev.regex, regexError: prev.regexError })
         log.push({ symbol, fromIds: [...activeIds], toIds: [...closed], transIds: [...fired] })
 
         activeTransIds = fired
@@ -227,7 +410,7 @@ export function useSimulator(
         status: deriveStatus(activeIds, head, input, states),
       }
     })
-  }, [transitions, states])
+  }, [transitions, states, automatonType, initialId])
 
-  return { sim, setInput, step, stepBack, run, reset }
+  return { sim, setInput, setRegex, step, stepBack, run, reset }
 }

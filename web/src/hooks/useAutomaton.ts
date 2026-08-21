@@ -13,32 +13,48 @@ export interface FAState {
   isFinal: boolean
 }
 
+export type FATransitionKind = 'symbol' | 'range'
+
+export type AutomatonType = 'dfa' | 'nfa' | 'tm-deterministic' | 'tm-nondeterministic' | 'regex'
+
 export interface FATransition {
-  id:     string
-  fromId: string
-  toId:   string
-  label:  string
+  id:         string
+  fromId:     string
+  toId:       string
+  label:      string
+  /**
+   * `symbol` is the legacy/default representation. `range` keeps one
+   * visual/semantic transition while matching every character in the range.
+   * Older saved automata may omit this field; they are treated as symbols.
+   */
+  kind?:      FATransitionKind
+  rangeStart?: string
+  rangeEnd?:   string
 }
 
 interface AutomatonData {
-  states:      FAState[]
-  transitions: FATransition[]
-  initialId:   string | null
-  selectedId:  string | null
+  states:        FAState[]
+  transitions:   FATransition[]
+  initialId:     string | null
+  selectedId:    string | null
+  automatonType: AutomatonType
+  regex: string
 }
 
 type Action =
   | { type: 'ADD_STATE';    id: string; label: string; x: number; y: number }
   | { type: 'MOVE_STATE';   id: string; x: number; y: number }
+  | { type: 'MOVE_STATES';  updates: { id: string; x: number; y: number }[] }
   | { type: 'DELETE_STATE'; id: string }
   | { type: 'TOGGLE_FINAL'; id: string }
   | { type: 'RENAME_STATE'; id: string; label: string }
   | { type: 'SET_INITIAL';  id: string | null }
-  | { type: 'ADD_TRANSITION';    id: string; fromId: string; toId: string; label: string }
+  | { type: 'ADD_TRANSITION';    id: string; fromId: string; toId: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
+  | { type: 'EDIT_TRANSITION';   id: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
   | { type: 'DELETE_TRANSITION'; id: string }
   | { type: 'SELECT';            id: string | null }
   | { type: 'DELETE_SELECTED' }
-  | { type: 'LOAD'; states: FAState[]; transitions: FATransition[]; initialId: string | null }
+  | { type: 'LOAD'; states: FAState[]; transitions: FATransition[]; initialId: string | null; automatonType?: AutomatonType; regex?: string }
 
 // Broadcastable over the network to other live collaborators — excludes
 // SELECT (per-user local UI state), LOAD (initial fetch only, would
@@ -47,6 +63,42 @@ type Action =
 // selection isn't synced; deleteSelected() below resolves it to a
 // concrete DELETE_STATE/DELETE_TRANSITION before broadcasting instead).
 export type RemoteAction = Exclude<Action, { type: 'SELECT' } | { type: 'LOAD' } | { type: 'DELETE_SELECTED' }>
+
+
+function transitionTokens(label: string): string[] {
+  return label.split(',').map(token => token.trim()).filter(Boolean)
+}
+
+function tokenCoversSymbol(token: string, symbol: string): boolean {
+  if (token === symbol) return true
+  const match = token.match(/^(.)(?:\s*-\s*)(.)$/)
+  if (!match || symbol.length !== 1) return false
+  const a = match[1].charCodeAt(0)
+  const b = match[2].charCodeAt(0)
+  const code = symbol.charCodeAt(0)
+  return a <= code && code <= b
+}
+
+function mergeTransitionLabels(existing: string, incoming: string): { label: string; changed: boolean } {
+  const oldTokens = transitionTokens(existing)
+  const newTokens = transitionTokens(incoming)
+  const result = [...oldTokens]
+  let changed = false
+  for (const token of newTokens) {
+    const duplicate = result.some(existingToken =>
+      existingToken === token || tokenCoversSymbol(existingToken, token)
+    )
+    if (!duplicate) {
+      result.unshift(token)
+      changed = true
+    }
+  }
+  return { label: result.join(','), changed }
+}
+
+function transitionKindForLabel(label: string): FATransitionKind | undefined {
+  return /^.(?:\s*-\s*).$/.test(label.trim()) && !label.includes(',') ? 'range' : undefined
+}
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +128,17 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
         ),
       }
 
+    case 'MOVE_STATES': {
+      const updates = new Map(action.updates.map(update => [update.id, update]))
+      return {
+        ...data,
+        states: data.states.map(s => {
+          const update = updates.get(s.id)
+          return update ? { ...s, x: update.x, y: update.y } : s
+        }),
+      }
+    }
+
     case 'DELETE_STATE':
       return {
         ...data,
@@ -104,14 +167,47 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
     case 'SET_INITIAL':
       return { ...data, initialId: action.id }
 
-    case 'ADD_TRANSITION':
-      // Same reasoning as ADD_STATE above — no selectedId mutation here.
+    case 'ADD_TRANSITION': {
+      const incomingLabel = action.kind === 'range' && action.rangeStart && action.rangeEnd
+        ? `${action.rangeStart}-${action.rangeEnd}`
+        : action.label
+      const existing = data.transitions.find(t => t.fromId === action.fromId && t.toId === action.toId)
+      if (!existing) {
+        return {
+          ...data,
+          transitions: [...data.transitions, {
+            id: action.id, fromId: action.fromId, toId: action.toId, label: incomingLabel,
+            kind: action.kind === 'range' ? 'range' : transitionKindForLabel(incomingLabel),
+            rangeStart: action.kind === 'range' ? action.rangeStart : undefined,
+            rangeEnd: action.kind === 'range' ? action.rangeEnd : undefined,
+          }],
+        }
+      }
+      const merged = mergeTransitionLabels(existing.label, incomingLabel)
+      if (!merged.changed) return data
       return {
         ...data,
-        transitions: [...data.transitions, {
-          id: action.id, fromId: action.fromId,
-          toId: action.toId, label: action.label,
-        }],
+        transitions: data.transitions.map(t => t.id === existing.id
+          ? { ...t, label: merged.label, kind: transitionKindForLabel(merged.label), rangeStart: undefined, rangeEnd: undefined }
+          : t
+        ),
+      }
+    }
+
+    case 'EDIT_TRANSITION':
+      return {
+        ...data,
+        transitions: data.transitions.map(t =>
+          t.id === action.id
+            ? {
+                ...t,
+                label: action.label,
+                kind: action.kind,
+                rangeStart: action.rangeStart,
+                rangeEnd: action.rangeEnd,
+              }
+            : t
+        ),
       }
 
     case 'DELETE_TRANSITION':
@@ -140,6 +236,8 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
       return {
         states: action.states, transitions: action.transitions,
         initialId: action.initialId, selectedId: null,
+        automatonType: action.automatonType ?? data.automatonType,
+        regex: action.regex ?? data.regex,
       }
 
     default: return data
@@ -150,12 +248,12 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
 
 const STORAGE_KEY = 'zflap-automaton'
 
-function loadFromStorage(): Pick<AutomatonData, 'states' | 'transitions' | 'initialId'> {
+function loadFromStorage(): Pick<AutomatonData, 'states' | 'transitions' | 'initialId' | 'automatonType' | 'regex'> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
   } catch { /* corrupted — ignore */ }
-  return { states: [], transitions: [], initialId: null }
+  return { states: [], transitions: [], initialId: null, automatonType: 'dfa', regex: '' }
 }
 
 function saveToStorage(data: AutomatonData) {
@@ -164,6 +262,8 @@ function saveToStorage(data: AutomatonData) {
       states:      data.states,
       transitions: data.transitions,
       initialId:   data.initialId,
+      automatonType: data.automatonType,
+      regex: data.regex,
     }))
   } catch { /* quota exceeded or private mode */ }
 }
@@ -198,7 +298,14 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
 
   const [data, dispatch] = useReducer(reducer, null, () => {
     const saved = loadFromStorage()
-    return { ...saved, selectedId: null }
+    return {
+      states: saved.states ?? [],
+      transitions: saved.transitions ?? [],
+      initialId: saved.initialId ?? null,
+      selectedId: null,
+      automatonType: saved.automatonType ?? 'dfa',
+      regex: saved.regex ?? '',
+    }
   })
 
   const labelNumRef = useRef(nextLabelNum(data.states.map(s => s.label)))
@@ -220,6 +327,13 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
 
   const moveState = useCallback((id: string, x: number, y: number) => {
     const action: RemoteAction = { type: 'MOVE_STATE', id, x, y }
+    dispatch(action)
+    onActionRef.current?.(action)
+  }, [])
+
+  const moveStates = useCallback((updates: { id: string; x: number; y: number }[]) => {
+    if (updates.length === 0) return
+    const action: RemoteAction = { type: 'MOVE_STATES', updates }
     dispatch(action)
     onActionRef.current?.(action)
   }, [])
@@ -248,10 +362,46 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     onActionRef.current?.(action)
   }, [])
 
-  const addTransition = useCallback((fromId: string, toId: string, label: string) => {
-    const action: RemoteAction = { type: 'ADD_TRANSITION', id: crypto.randomUUID(), fromId, toId, label }
+  const addTransition = useCallback((
+    fromId: string,
+    toId: string,
+    label: string,
+    kind: FATransitionKind = 'symbol',
+    rangeStart?: string,
+    rangeEnd?: string,
+  ) => {
+    const existing = data.transitions.find(t => t.fromId === fromId && t.toId === toId)
+    const incomingLabel = kind === 'range' && rangeStart && rangeEnd ? `${rangeStart}-${rangeEnd}` : label
+    if (existing && !mergeTransitionLabels(existing.label, incomingLabel).changed) {
+      dispatch({ type: 'SELECT', id: existing.id })
+      return
+    }
+    const action: RemoteAction = {
+      type: 'ADD_TRANSITION',
+      id: existing?.id ?? crypto.randomUUID(),
+      fromId, toId, label: incomingLabel, kind, rangeStart, rangeEnd,
+    }
     dispatch(action)
-    dispatch({ type: 'SELECT', id: action.id }) // local-only, never broadcast
+    dispatch({ type: 'SELECT', id: action.id })
+    onActionRef.current?.(action)
+  }, [data.transitions])
+
+  const editTransition = useCallback((
+    id: string,
+    label: string,
+    kind: FATransitionKind = 'symbol',
+    rangeStart?: string,
+    rangeEnd?: string,
+  ) => {
+    const action: RemoteAction = {
+      type: 'EDIT_TRANSITION',
+      id,
+      label,
+      kind,
+      rangeStart,
+      rangeEnd,
+    }
+    dispatch(action)
     onActionRef.current?.(action)
   }, [])
 
@@ -265,6 +415,14 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     dispatch({ type: 'SELECT', id })
   }, [])
 
+  const setAutomatonType = useCallback((automatonType: AutomatonType) => {
+    dispatch({ type: 'LOAD', states: data.states, transitions: data.transitions, initialId: data.initialId, automatonType, regex: data.regex })
+  }, [data.states, data.transitions, data.initialId, data.regex])
+
+  const setRegex = useCallback((regex: string) => {
+    dispatch({ type: 'LOAD', states: data.states, transitions: data.transitions, initialId: data.initialId, automatonType: data.automatonType, regex })
+  }, [data.states, data.transitions, data.initialId, data.automatonType])
+
   const deleteSelected = useCallback(() => {
     const id = data.selectedId
     dispatch({ type: 'DELETE_SELECTED' })
@@ -276,7 +434,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     }
   }, [data])
 
-  const load = useCallback((loaded: Pick<AutomatonData, 'states' | 'transitions' | 'initialId'>) => {
+  const load = useCallback((loaded: Pick<AutomatonData, 'states' | 'transitions' | 'initialId'> & { automatonType?: AutomatonType; regex?: string }) => {
     dispatch({ type: 'LOAD', ...loaded })
     labelNumRef.current = nextLabelNum(loaded.states.map(s => s.label))
   }, [])
@@ -292,13 +450,17 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     ...data,
     addState,
     moveState,
+    moveStates,
     deleteState,
     toggleFinal,
     renameState,
     setInitial,
     addTransition,
+    editTransition,
     deleteTransition,
     select,
+    setAutomatonType,
+    setRegex,
     deleteSelected,
     load,
     applyRemote,
@@ -307,23 +469,107 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
 
 export type UseAutomatonReturn = ReturnType<typeof useAutomaton>
 
+// ── Range helpers ─────────────────────────────────────────────────────────────
+
+export function isRangeKind(t: FATransition): boolean {
+  return t.kind === 'range' && !!t.rangeStart && !!t.rangeEnd
+}
+
+export function transitionMatchesSymbol(t: FATransition, symbol: string): boolean {
+  if (isRangeKind(t)) {
+    const start = t.rangeStart!.charCodeAt(0)
+    const end   = t.rangeEnd!.charCodeAt(0)
+    const code  = symbol.charCodeAt(0)
+    return symbol.length === 1 && start <= code && code <= end
+  }
+  return transitionTokens(t.label).some(token => tokenCoversSymbol(token, symbol))
+}
+
+function rangeCharacters(t: FATransition): string[] {
+  if (!isRangeKind(t)) return []
+  const start = t.rangeStart!.charCodeAt(0)
+  const end   = t.rangeEnd!.charCodeAt(0)
+  const chars: string[] = []
+  for (let code = start; code <= end; code++) chars.push(String.fromCharCode(code))
+  return chars
+}
+
+function transitionCharacterSet(t: FATransition): Set<string> {
+  if (isRangeKind(t)) return new Set(rangeCharacters(t))
+  const result = new Set<string>()
+  for (const token of transitionTokens(t.label)) {
+    if (token === 'ε') continue
+    const range = token.match(/^(.)(?:\s*-\s*)(.)$/)
+    if (range) {
+      const a = range[1].charCodeAt(0), b = range[2].charCodeAt(0)
+      for (let code = a; code <= b && code - a < 512; code++) result.add(String.fromCharCode(code))
+    } else if (token.length === 1) result.add(token)
+  }
+  return result
+}
+
+function rangesOverlap(a: FATransition, b: FATransition): boolean {
+  const aSet = transitionCharacterSet(a)
+  const bSet = transitionCharacterSet(b)
+  for (const symbol of aSet) if (bSet.has(symbol)) return true
+  return false
+}
+
 // ── Classification helper ─────────────────────────────────────────────────────
+
+
+export function detectAutomatonType(
+  states: FAState[],
+  transitions: FATransition[],
+  initialId: string | null,
+  declaredType: AutomatonType = 'dfa',
+): AutomatonType {
+  if (declaredType === 'regex') return 'regex'
+  if (declaredType.startsWith('tm-')) {
+    const readsByState = new Map<string, Set<string>>()
+    for (const t of transitions) {
+      const match = t.label.trim().match(/^(.+?)\s*\//)
+      if (!match) continue
+      const read = match[1].trim()
+      if (!read) continue
+      const reads = readsByState.get(t.fromId) ?? new Set<string>()
+      if (reads.has(read)) return 'tm-nondeterministic'
+      reads.add(read)
+      readsByState.set(t.fromId, reads)
+    }
+    return 'tm-deterministic'
+  }
+  const detected = classifyAutomaton(states, transitions, initialId)
+  return detected.label === 'DFA' ? 'dfa' : 'nfa'
+}
 
 export function classifyAutomaton(
   states: FAState[], transitions: FATransition[], initialId: string | null
 ): { label: string; color: 'green' | 'orange' | 'dim' } {
-  if (states.length === 0)  return { label: 'Empty',          color: 'dim'    }
-  if (!initialId)           return { label: 'No initial state', color: 'dim'  }
+  if (states.length === 0)  return { label: 'Empty',            color: 'dim'    }
+  if (!initialId)           return { label: 'No initial state', color: 'dim'    }
 
   const hasEps = transitions.some(t => t.label === 'ε' || t.label === '')
   if (hasEps) return { label: 'ε-NFA', color: 'orange' }
 
-  const syms = [...new Set(transitions.map(t => t.label))]
-  const isNFA = states.some(st =>
-    syms.some(sym =>
-      transitions.filter(t => t.fromId === st.id && t.label === sym).length > 1
-    )
-  )
+  const outgoingByState = new Map<string, FATransition[]>()
+  for (const transition of transitions) {
+    const outgoing = outgoingByState.get(transition.fromId)
+    if (outgoing) outgoing.push(transition)
+    else outgoingByState.set(transition.fromId, [transition])
+  }
+
+  const isNFA = states.some(st => {
+    const outgoing = outgoingByState.get(st.id)
+    if (!outgoing || outgoing.length < 2) return false
+    for (let i = 0; i < outgoing.length; i++) {
+      for (let j = i + 1; j < outgoing.length; j++) {
+        if (rangesOverlap(outgoing[i], outgoing[j])) return true
+      }
+    }
+    return false
+  })
+
   return isNFA
     ? { label: 'NFA', color: 'orange' }
     : { label: 'DFA', color: 'green'  }

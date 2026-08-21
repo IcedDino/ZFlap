@@ -433,6 +433,13 @@
   }
 }
 
+/* The editor is touch-capable on small screens; do not block the workspace. */
+@media (max-width: 380px) {
+  .smallWarning {
+    display: none;
+  }
+}
+
 .simRejected {
   font-size: 10px;
   font-weight: 700;
@@ -444,3 +451,64 @@
   border: 1px solid rgba(220, 38, 38, 0.22);
 }
 
+
+/* ── Export dropdown ──────────────────────────────────────────────────────── */
+
+.exportWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.exportMenu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  min-width: 205px;
+  padding: 5px;
+  background: rgba(250, 249, 247, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 5px rgba(0, 0, 0, 0.06);
+  z-index: 100;
+}
+
+.exportMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.exportMenuItem:hover {
+  color: var(--text);
+  background: var(--bg-card-hover);
+}
+
+.exportMenuItem:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+:global(:root[data-theme='dark']) .topbar { background: var(--glass); }
+:global(:root[data-theme='dark']) .statusbar { background: var(--glass); }
+:global(:root[data-theme='dark']) .exportMenu { background: rgba(26, 24, 20, 0.98); }
+:global(:root[data-theme='dark']) .smallWarning { background: rgba(17, 16, 14, 0.97); }
+
+@media (max-width: 640px) {
+  .statusbar {
+    bottom: 74px;
+    max-width: calc(100vw - 24px);
+    overflow: hidden;
+  }
+}

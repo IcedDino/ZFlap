@@ -225,3 +225,19 @@
   .header { padding: 0 20px; }
   .main   { padding: 32px 20px 56px; }
 }
+
+
+.modalBackdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(26,24,20,.32); backdrop-filter: blur(5px); }
+.modal { width: min(620px, 100%); background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 24px 80px rgba(0,0,0,.22); padding: 24px; }
+.modalHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.modalHeader h2 { margin:0 0 5px; color:var(--text); font-size:20px; }
+.modalHeader p { margin:0; color:var(--text-muted); font-size:13px; }
+.modalClose { width:32px; height:32px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-muted); background:transparent; font-size:20px; line-height:1; }
+.typeGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.typeCard { display:flex; align-items:center; gap:12px; text-align:left; padding:14px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--bg-card); color:var(--text); transition:border-color .12s, background .12s, transform .12s; }
+.typeCard:hover { border-color:var(--orange-border); background:var(--bg-card-hover); transform:translateY(-1px); }
+.typeIcon { width:36px; height:36px; display:grid; place-items:center; flex-shrink:0; border-radius:10px; color:var(--orange); background:var(--orange-light); }
+.typeCard strong, .typeCard small { display:block; }
+.typeCard strong { font-size:13px; margin-bottom:3px; }
+.typeCard small { color:var(--text-muted); font-size:11px; line-height:1.35; }
+@media (max-width:640px) { .typeGrid { grid-template-columns:1fr; } }

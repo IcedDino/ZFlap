@@ -39,9 +39,12 @@ export function randomAnonIdentity(): { initial: string; name: string } {
 // visible as that person's own avatar flickering out of everyone else's
 // list mid-edit, and eventually broke the whole channel from the churn.
 export interface PresenceState {
-  color:   string
-  initial: string
-  name:    string
+  color:      string
+  initial:    string
+  name:       string
+  // Stable browser/profile identity. Multiple tabs from the same browser
+  // share this value so they are never shown as separate people.
+  sessionId:  string
 }
 
 export interface CursorState {
@@ -54,20 +57,38 @@ export interface Peer extends PresenceState, CursorState {
   id: string
 }
 
-// A stable per-tab id — generate once (EditorPage keeps it in a ref) and
-// reuse across reconnects. Both the broadcast self-filter below and the
-// presence key are keyed on it, so a mid-session rejoin (see
-// leaveAutomatonChannel) doesn't change "who I am" to the rest of the
-// channel — it's the same tab either way.
+// Broadcast identity is per tab so two tabs can still exchange edits without
+// echoing their own messages. Presence identity is shared by tabs in the same
+// browser profile, so opening the same app in another tab does not appear as a
+// second person.
 export function createClientId(): string {
   return crypto.randomUUID()
 }
 
+const PRESENCE_STORAGE_KEY = 'zflap:presence-id'
+
+export function createPresenceId(): string {
+  try {
+    const existing = localStorage.getItem(PRESENCE_STORAGE_KEY)
+    if (existing) return existing
+    const id = crypto.randomUUID()
+    localStorage.setItem(PRESENCE_STORAGE_KEY, id)
+    return id
+  } catch {
+    // Private browsing/storage-disabled environments still get a stable id
+    // for this mounted tab; collaboration remains functional, but presence
+    // may be tab-scoped when the browser does not expose localStorage.
+    return crypto.randomUUID()
+  }
+}
+
 interface JoinOptions {
   clientId:    string
+  presenceId:  string
+  sessionId:   string
   getPresence: () => PresenceState // called fresh on every (re)join, never a stale snapshot
   onAction:    (action: RemoteAction) => void
-  onPresence:  (peers: { id: string; color: string; initial: string; name: string }[]) => void
+  onPresence:  (peers: { id: string; color: string; initial: string; name: string; sessionId: string }[]) => void
   onCursor:    (senderId: string, cursor: CursorState) => void
 }
 
@@ -76,9 +97,9 @@ interface JoinOptions {
 // close this," without needing the caller to coordinate anything.
 const closingChannels = new WeakSet<RealtimeChannel>()
 
-export function joinAutomatonChannel(id: string, { clientId, getPresence, onAction, onPresence, onCursor }: JoinOptions): RealtimeChannel {
+export function joinAutomatonChannel(id: string, { clientId, presenceId, sessionId, getPresence, onAction, onPresence, onCursor }: JoinOptions): RealtimeChannel {
   const channel = supabase.channel(`automaton:${id}`, {
-    config: { broadcast: { self: false }, presence: { key: clientId } },
+    config: { broadcast: { self: false }, presence: { key: presenceId } },
   })
 
   channel
@@ -93,13 +114,23 @@ export function joinAutomatonChannel(id: string, { clientId, getPresence, onActi
     })
     .on('broadcast', { event: 'cursor' }, ({ payload }) => {
       if (payload.senderId === clientId) return
-      onCursor(payload.senderId, payload.cursor as CursorState)
+      onCursor(payload.presenceId as string, payload.cursor as CursorState)
     })
     .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState<PresenceState>()
-      const peers = Object.entries(state)
-        .filter(([key]) => key !== clientId)
-        .map(([key, entries]) => ({ id: key, ...entries[0] }))
+      // Do not rely only on Supabase's presence key. If two tabs reconnect
+      // at slightly different times, Supabase can briefly expose more than
+      // one key/meta for the same browser. The stable sessionId is our final
+      // browser-level identity and makes that case deterministic.
+      const seenSessions = new Set<string>()
+      const peers: { id: string; color: string; initial: string; name: string; sessionId: string }[] = []
+      for (const [key, entries] of Object.entries(state)) {
+        const entry = entries[0]
+        if (!entry || key === presenceId || entry.sessionId === sessionId) continue
+        if (seenSessions.has(entry.sessionId)) continue
+        seenSessions.add(entry.sessionId)
+        peers.push({ id: key, color: entry.color, initial: entry.initial, name: entry.name, sessionId: entry.sessionId })
+      }
       onPresence(peers)
     })
 
@@ -125,8 +156,8 @@ export function broadcastAction(channel: RealtimeChannel, clientId: string, acti
   channel.send({ type: 'broadcast', event: 'action', payload: { senderId: clientId, action } })
 }
 
-export function broadcastCursor(channel: RealtimeChannel, clientId: string, cursor: CursorState): void {
-  channel.send({ type: 'broadcast', event: 'cursor', payload: { senderId: clientId, cursor } })
+export function broadcastCursor(channel: RealtimeChannel, clientId: string, presenceId: string, cursor: CursorState): void {
+  channel.send({ type: 'broadcast', event: 'cursor', payload: { senderId: clientId, presenceId, cursor } })
 }
 
 // Re-track identity — rare (only fires if someone signs in mid-session),

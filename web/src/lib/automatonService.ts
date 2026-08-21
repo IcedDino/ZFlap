@@ -1,10 +1,12 @@
 import { supabase } from './supabase'
-import type { FAState, FATransition } from '../hooks/useAutomaton'
+import type { FAState, FATransition, AutomatonType } from '../hooks/useAutomaton'
 
 export interface AutomatonPayload {
   states:      FAState[]
   transitions: FATransition[]
   initialId:   string | null
+  automatonType?: AutomatonType
+  regex?: string
 }
 
 export interface AutomatonRow {

@@ -24,9 +24,13 @@ function CursorImpl() {
       raf = requestAnimationFrame(tick)
     }
 
-    const onMove = (e: MouseEvent) => { mx = e.clientX; my = e.clientY }
+    // Pointer events keep the custom cursor synchronized while an element has
+    // pointer capture during drag. Mousemove alone can stop updating during
+    // captured pointer interactions, which makes the native (hidden) cursor
+    // appear to freeze and then jump when the drag ends.
+    const onMove = (e: PointerEvent) => { mx = e.clientX; my = e.clientY }
 
-    const onOver = (e: MouseEvent) => {
+    const onOver = (e: PointerEvent) => {
       if ((e.target as Element).closest(
         'button, a, input, select, textarea, [role="button"], label'
       )) {
@@ -34,7 +38,7 @@ function CursorImpl() {
         ring.dataset.hover = ''
       }
     }
-    const onOut = (e: MouseEvent) => {
+    const onOut = (e: PointerEvent) => {
       if ((e.target as Element).closest(
         'button, a, input, select, textarea, [role="button"], label'
       )) {
@@ -49,11 +53,11 @@ function CursorImpl() {
     const onLeave = () => { dot.style.opacity = '0'; ring.style.opacity = '0' }
     const onEnter = () => { dot.style.opacity = '1'; ring.style.opacity = '1' }
 
-    document.addEventListener('mousemove',  onMove)
-    document.addEventListener('mouseover',  onOver)
-    document.addEventListener('mouseout',   onOut)
-    document.addEventListener('mousedown',  onDown)
-    document.addEventListener('mouseup',    onUp)
+    document.addEventListener('pointermove',  onMove)
+    document.addEventListener('pointerover',  onOver)
+    document.addEventListener('pointerout',   onOut)
+    document.addEventListener('pointerdown',  onDown)
+    document.addEventListener('pointerup',    onUp)
     document.documentElement.addEventListener('mouseleave', onLeave)
     document.documentElement.addEventListener('mouseenter', onEnter)
 
@@ -61,11 +65,11 @@ function CursorImpl() {
 
     return () => {
       cancelAnimationFrame(raf)
-      document.removeEventListener('mousemove',  onMove)
-      document.removeEventListener('mouseover',  onOver)
-      document.removeEventListener('mouseout',   onOut)
-      document.removeEventListener('mousedown',  onDown)
-      document.removeEventListener('mouseup',    onUp)
+      document.removeEventListener('pointermove',  onMove)
+      document.removeEventListener('pointerover',  onOver)
+      document.removeEventListener('pointerout',   onOut)
+      document.removeEventListener('pointerdown',  onDown)
+      document.removeEventListener('pointerup',    onUp)
       document.documentElement.removeEventListener('mouseleave', onLeave)
       document.documentElement.removeEventListener('mouseenter', onEnter)
     }
