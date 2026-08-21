@@ -1109,21 +1109,21 @@ export default function DiagramCanvas({
     <div className={s.root}>
       <svg ref={svgRef} className={s.svg}>
         <defs>
-          <marker id="arrowD" markerWidth="7" markerHeight="6"
-            refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-            <path d="M0,0.5 L0,5.5 L6.5,3 z" fill="#C8C3BA" />
+          <marker id="arrowD" markerWidth="16" markerHeight="13"
+            refX="15" refY="6.5" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0.5 L0,12.5 L15,6.5 z" fill="#C8C3BA" />
           </marker>
-          <marker id="arrowS" markerWidth="7" markerHeight="6"
-            refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-            <path d="M0,0.5 L0,5.5 L6.5,3 z" fill="#F97316" />
+          <marker id="arrowS" markerWidth="16" markerHeight="13"
+            refX="15" refY="6.5" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0.5 L0,12.5 L15,6.5 z" fill="#F97316" />
           </marker>
-          <marker id="arrowP" markerWidth="7" markerHeight="6"
-            refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-            <path d="M0,0.5 L0,5.5 L6.5,3 z" fill="#AAA49A" />
+          <marker id="arrowP" markerWidth="16" markerHeight="13"
+            refX="15" refY="6.5" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0.5 L0,12.5 L15,6.5 z" fill="#AAA49A" />
           </marker>
-          <marker id="arrowA" markerWidth="7" markerHeight="6"
-            refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-            <path d="M0,0.5 L0,5.5 L6.5,3 z" fill="#16A34A" />
+          <marker id="arrowA" markerWidth="16" markerHeight="13"
+            refX="15" refY="6.5" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0.5 L0,12.5 L15,6.5 z" fill="#16A34A" />
           </marker>
         </defs>
 
