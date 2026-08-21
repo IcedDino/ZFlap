@@ -10,6 +10,10 @@ const CURVE_OFF = 52    // perpendicular offset for bidirectional arcs
 const FAN_OFF   = 28    // spacing between parallel outgoing/incoming transition lanes
 const LABEL_GAP  = 14   // clearance between a transition stroke and its nearest label line
 const LABEL_LINE = 14   // line height of a stacked multi-symbol transition label
+// dominant-baseline="middle" centres on half the x-height, but a label's optical
+// centre is half the cap-height, so glyphs land slightly above their anchor.
+// Nudging back down keeps the clearance equal above and below the stroke.
+const LABEL_RISE = 2    // optical-centre correction, world units
 const LOOP_R    = 46    // radius of the self-loop circle
 const LOOP_DIST = STATE_R + LOOP_R * 0.55   // self-loop centre, measured above the state centre
 const MIN_ZOOM  = 0.2
@@ -1151,7 +1155,7 @@ export default function DiagramCanvas({
             const lineCount = Math.max(tokens.length, 1)
             const stackPush = (lineCount - 1) * (LABEL_LINE / 2)
             const tx = lx + nx * stackPush
-            const ty = ly + ny * stackPush
+            const ty = ly + ny * stackPush + LABEL_RISE
 
             const stroke    = isActive ? '#16A34A' : isSel ? '#F97316' : '#C8C3BA'
             const strokeW   = isActive ? 2.5       : isSel ? 2         : 1.5
