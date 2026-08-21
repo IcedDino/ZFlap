@@ -8,6 +8,8 @@ import s from './DiagramCanvas.module.css'
 
 const CURVE_OFF = 52    // perpendicular offset for bidirectional arcs
 const FAN_OFF   = 28    // spacing between parallel outgoing/incoming transition lanes
+const LABEL_GAP  = 14   // clearance between a transition stroke and its nearest label line
+const LABEL_LINE = 14   // line height of a stacked multi-symbol transition label
 const LOOP_R    = 46    // radius of the self-loop circle
 const LOOP_DIST = STATE_R + LOOP_R * 0.55   // self-loop centre, measured above the state centre
 const MIN_ZOOM  = 0.2
@@ -187,7 +189,9 @@ function selfLoopPath(x: number, y: number): { d: string; topY: number } {
   }
 }
 
-interface TransPath { d: string; lx: number; ly: number }
+// lx/ly anchor the label stack; nx/ny is the unit normal pointing away from the
+// stroke, so the renderer can grow a multi-symbol stack without crossing the line.
+interface TransPath { d: string; lx: number; ly: number; nx: number; ny: number }
 
 function computeTransPath(
   from: FAState, to: FAState,
@@ -197,7 +201,7 @@ function computeTransPath(
   // Self-loop
   if (from.id === to.id) {
     const loop = selfLoopPath(from.x, from.y)
-    return { d: loop.d, lx: from.x, ly: loop.topY - 12 }
+    return { d: loop.d, lx: from.x, ly: loop.topY - 12, nx: 0, ny: -1 }
   }
 
   const dx = to.x - from.x, dy = to.y - from.y
@@ -210,7 +214,11 @@ function computeTransPath(
     // Straight
     const x1 = from.x + ux * STATE_R, y1 = from.y + uy * STATE_R
     const x2 = to.x   - ux * STATE_R, y2 = to.y   - uy * STATE_R
-    return { d: `M ${x1},${y1} L ${x2},${y2}`, lx: (x1+x2)/2 + px*(-14), ly: (y1+y2)/2 + py*(-14) }
+    return {
+      d: `M ${x1},${y1} L ${x2},${y2}`,
+      lx: (x1+x2)/2 - px*LABEL_GAP, ly: (y1+y2)/2 - py*LABEL_GAP,
+      nx: -px, ny: -py,
+    }
   }
 
   // Quadratic bezier. Besides reciprocal transitions, fan out all edges
@@ -224,8 +232,9 @@ function computeTransPath(
   const [cpxUnit, cpyUnit] = [-cuy, cux]
   const bendSign = isTwin ? (isForward ? 1 : -1) : 1
   const baseCurve = isTwin ? CURVE_OFF : 0
-  const cpx = (from.x + to.x) / 2 + cpxUnit * (baseCurve * bendSign + fanOffset)
-  const cpy = (from.y + to.y) / 2 + cpyUnit * (baseCurve * bendSign + fanOffset)
+  const bend = baseCurve * bendSign + fanOffset
+  const cpx = (from.x + to.x) / 2 + cpxUnit * bend
+  const cpy = (from.y + to.y) / 2 + cpyUnit * bend
 
   const [fd0, fd1] = norm(cpx - from.x, cpy - from.y)
   const [td0, td1] = norm(to.x - cpx,   to.y - cpy)
@@ -237,11 +246,17 @@ function computeTransPath(
   const bx = 0.25*x1 + 0.5*cpx + 0.25*x2
   const by = 0.25*y1 + 0.5*cpy + 0.25*y2
 
-  const labelOffset = baseCurve * bendSign * 0.28 + fanOffset * 0.42
+  // Sit on the outside of the bend, a fixed distance off the stroke. The middle
+  // lane of an odd fan has no bend at all, so it falls back to the side that
+  // straight edges use rather than landing on top of its own line.
+  const [nx, ny] = bend > 0 ? [cpxUnit, cpyUnit]
+                 : bend < 0 ? [-cpxUnit, -cpyUnit]
+                 : [-px, -py]
   return {
     d: `M ${x1},${y1} Q ${cpx},${cpy} ${x2},${y2}`,
-    lx: bx + cpxUnit * labelOffset,
-    ly: by + cpyUnit * labelOffset,
+    lx: bx + nx * LABEL_GAP,
+    ly: by + ny * LABEL_GAP,
+    nx, ny,
   }
 }
 
@@ -1126,7 +1141,17 @@ export default function DiagramCanvas({
             const isFwd    = !isTwin || t.fromId < t.toId
             const outgoing = outgoingGroups.get(t.fromId) ?? []
             const fanIndex = Math.max(0, outgoing.findIndex(edge => edge.id === t.id))
-            const { d, lx, ly } = computeTransPath(from, to, isTwin, isFwd, fanIndex, outgoing.length)
+            const { d, lx, ly, nx, ny } = computeTransPath(from, to, isTwin, isFwd, fanIndex, outgoing.length)
+
+            // The stack is centred on its anchor, so a label with N symbols
+            // reaches (N-1)*LABEL_LINE/2 back toward the stroke. Push the whole
+            // block out by that much and the nearest line keeps its clearance
+            // no matter how many symbols the transition carries.
+            const tokens  = t.label.split(',').map(token => token.trim()).filter(Boolean)
+            const lineCount = Math.max(tokens.length, 1)
+            const stackPush = (lineCount - 1) * (LABEL_LINE / 2)
+            const tx = lx + nx * stackPush
+            const ty = ly + ny * stackPush
 
             const stroke    = isActive ? '#16A34A' : isSel ? '#F97316' : '#C8C3BA'
             const strokeW   = isActive ? 2.5       : isSel ? 2         : 1.5
@@ -1157,15 +1182,22 @@ export default function DiagramCanvas({
                 />
                 {/* Label */}
                 <text
-                  x={lx} y={ly}
+                  x={tx} y={ty}
                   textAnchor="middle" dominantBaseline="middle"
                   fontSize={13} fontFamily="JetBrains Mono, monospace"
                   fill={labelFill}
+                  strokeWidth={3} paintOrder="stroke"
                   pointerEvents="none"
-                  style={{ userSelect: 'none' }}
+                  style={{ userSelect: 'none', stroke: 'var(--bg)' }}
                 >
-                  {t.label.split(',').map((token, index) => (
-                    <tspan key={`${t.id}-${index}`} x={lx} dy={index === 0 ? `${-(t.label.split(',').length - 1) * 7}px` : '14px'}>{token.trim()}</tspan>
+                  {tokens.map((token, index) => (
+                    <tspan
+                      key={`${t.id}-${index}`}
+                      x={tx}
+                      dy={index === 0 ? `${-stackPush}px` : `${LABEL_LINE}px`}
+                    >
+                      {token}
+                    </tspan>
                   ))}
                 </text>
               </g>
