@@ -8,6 +8,8 @@ import s from './DiagramCanvas.module.css'
 
 const CURVE_OFF = 52    // perpendicular offset for bidirectional arcs
 const FAN_OFF   = 28    // spacing between parallel outgoing/incoming transition lanes
+const LOOP_R    = 46    // radius of the self-loop circle
+const LOOP_DIST = STATE_R + LOOP_R * 0.55   // self-loop centre, measured above the state centre
 const MIN_ZOOM  = 0.2
 const MAX_ZOOM  = 3.0
 const MM_W      = 168   // minimap pixel width
@@ -172,6 +174,19 @@ function getTransId(target: EventTarget | null): string | null {
   return target.closest('[data-tid]')?.getAttribute('data-tid') ?? null
 }
 
+// A self-loop is a real circle that overlaps the state, drawn as the major arc
+// between the two circle intersections. That reads as a round loop instead of
+// the flat teardrop a shallow bezier produces at this state radius.
+function selfLoopPath(x: number, y: number): { d: string; topY: number } {
+  const a = (LOOP_DIST * LOOP_DIST + STATE_R * STATE_R - LOOP_R * LOOP_R) / (2 * LOOP_DIST)
+  const half = Math.sqrt(Math.max(STATE_R * STATE_R - a * a, 1))   // half-chord between intersections
+  const ay = y - a
+  return {
+    d: `M ${x - half},${ay} A ${LOOP_R} ${LOOP_R} 0 1 1 ${x + half},${ay}`,
+    topY: y - LOOP_DIST - LOOP_R,
+  }
+}
+
 interface TransPath { d: string; lx: number; ly: number }
 
 function computeTransPath(
@@ -181,13 +196,8 @@ function computeTransPath(
 ): TransPath {
   // Self-loop
   if (from.id === to.id) {
-    const { x, y } = from
-    const sp = 14, h = 68
-    const x1 = x - sp,    y1 = y - STATE_R + 2
-    const x2 = x + sp,    y2 = y - STATE_R + 2
-    const c1x = x - h * 0.55, c1y = y - h
-    const c2x = x + h * 0.55, c2y = y - h
-    return { d: `M ${x1},${y1} C ${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}`, lx: x, ly: y - h - 10 }
+    const loop = selfLoopPath(from.x, from.y)
+    return { d: loop.d, lx: from.x, ly: loop.topY - 12 }
   }
 
   const dx = to.x - from.x, dy = to.y - from.y
@@ -1046,9 +1056,7 @@ export default function DiagramCanvas({
 
     if (snap && snap.id === from.id) {
       // Self-loop preview
-      const { x, y } = from
-      const sp = 14, h = 68
-      return `M ${x-sp},${y-STATE_R+2} C ${x-h*.55},${y-h} ${x+h*.55},${y-h} ${x+sp},${y-STATE_R+2}`
+      return selfLoopPath(from.x, from.y).d
     }
 
     const ex = snap ? snap.x : transDrag.cursorX
