@@ -257,7 +257,6 @@ interface Props {
   readOnly?:        boolean
   hideMinimap?:     boolean
   peers?:           PeerCursor[]
-  tmMode?:          boolean
   onAddState:         (x: number, y: number) => void
   onMoveStates:       (updates: { id: string; x: number; y: number }[]) => void
   onDeleteState:      (id: string) => void
@@ -277,11 +276,12 @@ interface Props {
 
 export default function DiagramCanvas({
   states, transitions, initialId, selectedId, tool, automatonType = 'dfa',
-  activeStateIds, activeTransIds, readOnly, hideMinimap, peers, tmMode,
+  activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
   onAddState, onMoveStates, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
   onAddTransition, onEditTransition, onDeleteTransition, onSelect, onDeleteSelected,
   onViewChange, onCursorMove,
 }: Props) {
+  const isTmType = automatonType.startsWith('tm-')
   const svgRef   = useRef<SVGSVGElement>(null)
   const groupRef = useRef<SVGGElement>(null)
   const labelRef = useRef<HTMLInputElement>(null)
@@ -335,9 +335,6 @@ export default function DiagramCanvas({
   const readOnlyRef     = useRef(readOnly ?? false)
   const activeIdsRef    = useRef(activeStateIds)
 
-  // TM mode ref
-  const tmModeRef = useRef(tmMode ?? false)
-
   statesRef.current     = states
   transRef.current      = transitions
   selectedRef.current   = selectedId
@@ -355,7 +352,6 @@ export default function DiagramCanvas({
   cbDelSelected.current = onDeleteSelected
   readOnlyRef.current   = readOnly ?? false
   activeIdsRef.current  = activeStateIds
-  tmModeRef.current     = tmMode ?? false
 
   // React state for visuals that need a re-render
   const [transDrag, setTransDrag] = useState<TransitionDragState | null>(null)
@@ -867,10 +863,13 @@ export default function DiagramCanvas({
         setRangeEndDraft(isRange ? (t.rangeEnd ?? '') : '')
         setRangeError('')
 
-        const tm = /^(.*?)→(.*?),(L|R|S)$/.exec(t.label)
-        setTmRead(tm && tm[1] !== '_' ? tm[1] : '')
-        setTmWrite(tm && tm[2] !== '_' ? tm[2] : '')
-        setTmDir(tm ? (tm[3] as 'L' | 'R' | 'S') : 'R')
+        // Accept both the current "read/write,dir" label and the legacy
+        // arrow format "read→write,dir" from documents saved before the
+        // formats were unified.
+        const tm = /^(.+?)(?:\/|→)(.+?),\s*([LRS])$/i.exec(t.label.trim())
+        setTmRead(tm && tm[1].trim() !== '_' ? tm[1].trim() : '')
+        setTmWrite(tm && tm[2].trim() !== '_' ? tm[2].trim() : '')
+        setTmDir(tm ? (tm[3].toUpperCase() as 'L' | 'R' | 'S') : 'R')
 
         requestAnimationFrame(() => {
           if (isRange) rangeStartRef.current?.select()
@@ -955,10 +954,10 @@ export default function DiagramCanvas({
     if (!popup.visible) return
     const editingId = popup.editingTransitionId
 
-    if (tmModeRef.current) {
+    if (isTmType) {
       const read  = tmRead.trim() || '_'
       const write = tmWrite.trim() || '_'
-      const label = `${read}→${write},${tmDir}`
+      const label = `${read}/${write},${tmDir}`
       if (editingId) {
         cbEditTrans.current?.(editingId, label, 'symbol')
       } else {
@@ -1002,7 +1001,7 @@ export default function DiagramCanvas({
       cbAddTrans.current(popup.fromId, popup.toId, label, 'range', start, end)
     }
     setPopup(p => ({ ...p, visible: false }))
-  }, [popup, labelDraft, rangeMode, rangeStartDraft, rangeEndDraft, tmRead, tmWrite, tmDir])
+  }, [popup, labelDraft, rangeMode, rangeStartDraft, rangeEndDraft, tmRead, tmWrite, tmDir, isTmType])
 
   const toggleRangeMode = useCallback(() => {
     setRangeMode(current => {
@@ -1393,7 +1392,7 @@ export default function DiagramCanvas({
           className={s.popup}
           style={{ left: popup.screenX, top: popup.screenY }}
         >
-          {tmModeRef.current ? (
+          {isTmType ? (
             <>
               <span className={s.popupHint}>Transition</span>
               <input
@@ -1496,7 +1495,7 @@ export default function DiagramCanvas({
               )}
             </>
           )}
-          {!automatonType.startsWith('tm-') && !tmModeRef.current && (
+          {!isTmType && (
             <button
               className={`${s.popupRangeButton} ${rangeMode ? s.popupRangeButtonActive : ''}`}
               onClick={toggleRangeMode}

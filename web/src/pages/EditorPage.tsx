@@ -8,14 +8,12 @@ import type { View } from '../components/editor/DiagramCanvas'
 import FloatingToolbar from '../components/editor/FloatingToolbar'
 import type { Tool } from '../components/editor/FloatingToolbar'
 import SimPanel from '../components/editor/SimPanel'
-import TmSimPanel from '../components/editor/TmSimPanel'
 import RegexWorkspace from '../components/editor/RegexWorkspace'
 import AuthModal from '../components/AuthModal'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAutomaton, classifyAutomaton, detectAutomatonType } from '../hooks/useAutomaton'
 import type { RemoteAction } from '../hooks/useAutomaton'
 import { useSimulator } from '../hooks/useSimulator'
-import { useTmSimulator } from '../hooks/useTmSimulator'
 import { useAuth } from '../hooks/useAuth'
 import { create, update, setPublic, getById } from '../lib/automatonService'
 import { joinAutomatonChannel, leaveAutomatonChannel, broadcastAction, broadcastCursor, trackIdentity, randomPeerColor, randomAnonIdentity, createClientId, createPresenceId } from '../lib/realtime'
@@ -24,7 +22,6 @@ import { downloadAutomatonJson, downloadAutomatonPng, downloadAutomatonPdf } fro
 import s from './EditorPage.module.css'
 
 type Mode = 'edit' | 'simulate'
-type AutomatonType = 'fa' | 'tm'
 
 export default function EditorPage() {
   const { id } = useParams<{ id?: string }>()
@@ -34,7 +31,6 @@ export default function EditorPage() {
   const [tool, setTool] = useState<Tool>('select')
   const [name, setName] = useState('Untitled automaton')
   const [mode, setMode] = useState<Mode>('edit')
-  const [automatonType, setAutomatonType] = useState<AutomatonType>('fa')
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('zflap-theme') === 'dark')
   const [newType] = useState(() => localStorage.getItem('zflap-new-type') as import('../hooks/useAutomaton').AutomatonType | null)
 
@@ -417,21 +413,8 @@ export default function EditorPage() {
     automaton.regex,
   )
 
-  const tmSimulator = useTmSimulator(
-    automaton.states,
-    automaton.transitions,
-    automaton.initialId,
-  )
-
-  // FA simulator active states (TM doesn't track activeIds — it's deterministic)
-  const faActiveIds = automatonType === 'fa' ? simulator.sim.activeIds : undefined
-  const faActiveTransIds = automatonType === 'fa' ? simulator.sim.activeTransIds : undefined
-
   useEffect(() => {
-    if (mode === 'simulate') {
-      if (automatonType === 'tm') tmSimulator.reset()
-      else simulator.reset()
-    }
+    if (mode === 'simulate') simulator.reset()
   }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -532,12 +515,11 @@ export default function EditorPage() {
           selectedId={automaton.selectedId}
           tool={tool}
           automatonType={detectedMachineType}
-          activeStateIds={mode === 'simulate' ? faActiveIds : undefined}
-          activeTransIds={mode === 'simulate' ? faActiveTransIds : undefined}
+          activeStateIds={mode === 'simulate' ? simulator.sim.activeIds : undefined}
+          activeTransIds={mode === 'simulate' ? simulator.sim.activeTransIds : undefined}
           readOnly={mode === 'simulate'}
           hideMinimap={mode === 'simulate'}
           peers={mergedPeers}
-          tmMode={automatonType === 'tm'}
           onCursorMove={handleCursorMove}
           onAddState={automaton.addState}
           onMoveStates={automaton.moveStates}
@@ -563,14 +545,16 @@ export default function EditorPage() {
 
         <div className={s.topbarDivider} />
 
-        <button
-          className={s.typeToggle}
-          onClick={() => setAutomatonType(t => t === 'fa' ? 'tm' : 'fa')}
-          title={`Switch to ${automatonType === 'fa' ? 'Turing Machine' : 'Finite Automaton'} mode`}
-        >
-          <Cpu size={13} />
-          <span className={s.typeLabel}>{automatonType === 'fa' ? 'FA' : 'TM'}</span>
-        </button>
+        {detectedMachineType !== 'regex' && (
+          <button
+            className={s.typeToggle}
+            onClick={() => automaton.setAutomatonType(detectedMachineType.startsWith('tm-') ? 'dfa' : 'tm-deterministic')}
+            title={`Switch to ${detectedMachineType.startsWith('tm-') ? 'finite automaton' : 'Turing machine'}`}
+          >
+            <Cpu size={13} />
+            <span className={s.typeLabel}>{detectedMachineType.startsWith('tm-') ? 'TM' : 'FA'}</span>
+          </button>
+        )}
 
         <input
           className={s.nameInput}
@@ -689,34 +673,20 @@ export default function EditorPage() {
       />
 
       {/* ── Right sidebar — always mounted, slides in in simulate mode ── */}
-      {automatonType === 'tm' ? (
-        <TmSimPanel
-          states={automaton.states}
-          sim={tmSimulator.sim}
-          hidden={mode === 'edit'}
-          onInput={tmSimulator.setInput}
-          onStep={tmSimulator.step}
-          onStepBack={tmSimulator.stepBack}
-          onRun={tmSimulator.run}
-          onReset={tmSimulator.reset}
-          onClose={() => setMode('edit')}
-        />
-      ) : (
-        <SimPanel
-          states={automaton.states}
-          sigma={new Set(automaton.transitions.map(t => t.label).filter(Boolean))}
-          sim={simulator.sim}
-          hidden={mode === 'edit'}
-          automatonType={detectedMachineType}
-          onInput={simulator.setInput}
-          onRegex={value => { automaton.setRegex(value); simulator.setRegex(value) }}
-          onStep={simulator.step}
-          onStepBack={simulator.stepBack}
-          onRun={simulator.run}
-          onReset={simulator.reset}
-          onClose={() => setMode('edit')}
-        />
-      )}
+      <SimPanel
+        states={automaton.states}
+        sigma={new Set(automaton.transitions.map(t => t.label).filter(Boolean))}
+        sim={simulator.sim}
+        hidden={mode === 'edit'}
+        automatonType={detectedMachineType}
+        onInput={simulator.setInput}
+        onRegex={value => { automaton.setRegex(value); simulator.setRegex(value) }}
+        onStep={simulator.step}
+        onStepBack={simulator.stepBack}
+        onRun={simulator.run}
+        onReset={simulator.reset}
+        onClose={() => setMode('edit')}
+      />
 
       {/* ── Small-screen warning ── */}
       <div className={s.smallWarning}>
@@ -745,15 +715,7 @@ export default function EditorPage() {
 
         <span className={s.statusSep} />
 
-        {mode === 'simulate' && automatonType === 'tm' && tmSimulator.sim.status !== 'idle' ? (
-          tmSimulator.sim.status === 'accepted' ? (
-            <span className={s.statusChipGreen}>✓ Accepted</span>
-          ) : tmSimulator.sim.status === 'halted' ? (
-            <span className={s.simRejected}>✕ Halted</span>
-          ) : (
-            <span>Step {tmSimulator.sim.log.length} · Head: {tmSimulator.sim.head}</span>
-          )
-        ) : mode === 'simulate' && automatonType === 'fa' && simulator.sim.status !== 'idle' ? (
+        {mode === 'simulate' && simulator.sim.status !== 'idle' ? (
           simulator.sim.status === 'accepted' ? (
             <span className={s.statusChipGreen}>✓ Simulation complete — accepted</span>
           ) : simulator.sim.status === 'rejected' ? (

@@ -528,7 +528,8 @@ export function detectAutomatonType(
   if (declaredType.startsWith('tm-')) {
     const readsByState = new Map<string, Set<string>>()
     for (const t of transitions) {
-      const match = t.label.trim().match(/^(.+?)\s*\//)
+      // "read/write,dir" current format; "read→write,dir" legacy fallback
+      const match = t.label.trim().match(/^(.+?)(?:\s*\/|→)/)
       if (!match) continue
       const read = match[1].trim()
       if (!read) continue

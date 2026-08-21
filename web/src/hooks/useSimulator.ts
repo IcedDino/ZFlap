@@ -147,7 +147,10 @@ function makeInitial(
 }
 
 function parseTmTransition(t: FATransition): { read: string; write: string; move: -1 | 0 | 1 } | null {
+  // Current format is "read/write,MOVE"; documents saved before the formats
+  // were unified may still carry the legacy arrow form "read→write,MOVE".
   const match = t.label.trim().match(/^(.+?)\s*\/\s*(.+?)\s*,\s*([LRNS])$/i)
+    ?? t.label.trim().match(/^(.+?)→\s*(.+?)\s*,\s*([LRNS])$/i)
   if (!match) return null
   const read = match[1].trim()
   const write = match[2].trim()
