@@ -49,6 +49,75 @@ async function readGitAuthors(cwd: string): Promise<Contributor[]> {
   )
 }
 
+// True when the checkout has had its history truncated. Deploy images are
+// usually cloned with `--depth 1`, which leaves exactly one commit — reading
+// authors from that would credit the whole project to whoever pushed last.
+async function isShallowCheckout(cwd: string): Promise<boolean> {
+  try {
+    const { stdout } = await run('git', ['rev-parse', '--is-shallow-repository'], { cwd })
+    return stdout.trim() === 'true'
+  } catch {
+    return false
+  }
+}
+
+// Fallback source for when local history cannot be trusted. This endpoint needs
+// no clone at all and dedupes by GitHub account, so it does the job .mailmap
+// does locally. Display names cost one extra lookup each and degrade to the
+// login if the profile has none.
+async function readGithubContributors(
+  repo: string,
+  timeoutMs: number,
+  headers: Record<string, string>,
+): Promise<Contributor[]> {
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/contributors?per_page=100`,
+    { headers, signal: AbortSignal.timeout(timeoutMs) },
+  )
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+
+  const raw = (await res.json()) as {
+    login?: string; avatar_url?: string; html_url?: string
+    contributions?: number; type?: string
+  }[]
+  if (!Array.isArray(raw)) return []
+
+  const people = raw.filter(entry => entry.login && entry.type !== 'Bot')
+
+  return Promise.all(people.map(async entry => {
+    let name = entry.login!
+    try {
+      const profile = await fetch(`https://api.github.com/users/${entry.login}`, {
+        headers, signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (profile.ok) {
+        const { name: displayName } = (await profile.json()) as { name?: string | null }
+        if (displayName) name = displayName
+      }
+    } catch { /* keep the login as the name */ }
+
+    return {
+      name,
+      email:   `${entry.login}@users.noreply.github.com`, // list key only
+      commits: entry.contributions ?? 0,
+      login:   entry.login!,
+      avatar:  entry.avatar_url,
+      url:     entry.html_url,
+    }
+  }))
+}
+
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'zflap-contributors-plugin',
+  }
+  // Optional — only raises the 60/hr unauthenticated rate limit.
+  const token = process.env.GITHUB_TOKEN
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
 // GitHub links a commit to an account by verified email, so asking the commits
 // endpoint for one author is enough to recover their login and avatar. An
 // address that was never verified comes back as `author: null`; that
@@ -62,15 +131,7 @@ async function resolveGithubIdentity(
     `https://api.github.com/repos/${repo}/commits` +
     `?author=${encodeURIComponent(email)}&per_page=1`
 
-  const headers: Record<string, string> = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'zflap-contributors-plugin',
-  }
-  // Optional — only raises the 60/hr unauthenticated rate limit.
-  const token = process.env.GITHUB_TOKEN
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) })
+  const res = await fetch(url, { headers: githubHeaders(), signal: AbortSignal.timeout(timeoutMs) })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
 
   const commits = (await res.json()) as { author?: { login?: string; avatar_url?: string; html_url?: string } | null }[]
@@ -83,27 +144,49 @@ async function resolveGithubIdentity(
 /**
  * Exposes the repo's contributors to the app as `virtual:contributors`.
  *
- * The list comes from `git log` at build time, so it is never hand-maintained.
- * Avatars are a best-effort enrichment: if git or the GitHub API is
- * unavailable the build still succeeds, just with less in each entry, and the
- * landing page renders monograms instead of photos.
+ * Local history is the preferred source, since .mailmap makes it the most
+ * accurate one. Deploy images are commonly cloned with `--depth 1` though, and
+ * a shallow clone would credit the entire project to whoever pushed last — so
+ * when history is missing or truncated the GitHub contributors API stands in.
+ * If neither is reachable the build still succeeds with an empty list, and the
+ * landing page hides the section rather than showing something wrong.
  */
 export function contributorsPlugin(options: Options = {}): Plugin {
   const { repo, timeoutMs = 5000 } = options
   let cache: Promise<Contributor[]> | null = null
   let root = process.cwd()
 
+  async function fromGithub(): Promise<Contributor[]> {
+    if (!repo) return []
+    try {
+      const people = await readGithubContributors(repo, timeoutMs, githubHeaders())
+      console.info(`[contributors] using the GitHub API (${people.length} contributors)`)
+      return people
+    } catch (err) {
+      console.warn(`[contributors] GitHub API unavailable: ${(err as Error).message}`)
+      return []
+    }
+  }
+
   async function collect(): Promise<Contributor[]> {
+    // A truncated clone looks like a healthy repo with one contributor, so it
+    // has to be ruled out explicitly rather than caught as an error.
+    if (await isShallowCheckout(root)) {
+      console.info('[contributors] shallow checkout — git history is not usable here')
+      return fromGithub()
+    }
+
     let authors: Contributor[]
     try {
       authors = await readGitAuthors(root)
     } catch (err) {
       // A deploy image built from an archive rather than a clone has no
-      // history to read. Better an empty section than a failed build.
+      // history to read.
       console.warn(`[contributors] no git history available: ${(err as Error).message}`)
-      return []
+      return fromGithub()
     }
 
+    if (authors.length === 0) return fromGithub()
     if (!repo) return authors
 
     const enriched = await Promise.all(
