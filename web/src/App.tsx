@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import EditorPage from './pages/EditorPage'
+import DashboardPage from './pages/DashboardPage'
 import CustomCursor from './components/CustomCursor'
 
 function ShareRedirect() {
@@ -14,6 +15,7 @@ export default function App() {
       <CustomCursor />
       <Routes>
         <Route path="/"               element={<HomePage />} />
+        <Route path="/dashboard"      element={<DashboardPage />} />
         <Route path="/editor"         element={<EditorPage />} />
         <Route path="/editor/:id"     element={<EditorPage />} />
         <Route path="/share/:id"      element={<ShareRedirect />} />

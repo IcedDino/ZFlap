@@ -629,7 +629,7 @@ export default function EditorPage() {
         />
         <div className={s.exportWrap} data-export-menu>
           <button
-            className={s.topbarBtnPrimary}
+            className={s.topbarBtn}
             onClick={() => setExportOpen(open => !open)}
             aria-haspopup="menu"
             aria-expanded={exportOpen}
@@ -663,7 +663,7 @@ export default function EditorPage() {
         {!user && (
           <>
             <div className={s.topbarDivider} />
-            <button className={s.topbarBtn} onClick={() => setAuthOpen(true)}>
+            <button className={s.topbarBtnPrimary} onClick={() => setAuthOpen(true)}>
               <User size={14} /> Sign in
             </button>
           </>
