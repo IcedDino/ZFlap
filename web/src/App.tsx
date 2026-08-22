@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-
 import HomePage from './pages/HomePage'
 import EditorPage from './pages/EditorPage'
 import DashboardPage from './pages/DashboardPage'
+import AuthPage from './pages/AuthPage'
 import CustomCursor from './components/CustomCursor'
 
 function ShareRedirect() {
@@ -15,6 +16,8 @@ export default function App() {
       <CustomCursor />
       <Routes>
         <Route path="/"               element={<HomePage />} />
+        <Route path="/login"          element={<AuthPage mode="login" />} />
+        <Route path="/signup"         element={<AuthPage mode="signup" />} />
         <Route path="/dashboard"      element={<DashboardPage />} />
         <Route path="/editor"         element={<EditorPage />} />
         <Route path="/editor/:id"     element={<EditorPage />} />

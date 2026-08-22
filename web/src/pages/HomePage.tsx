@@ -1,10 +1,8 @@
-import { useState } from 'react'
 import { Cpu, Layers, GitBranch, Zap, Shield, Globe, ArrowRight, CheckCircle } from 'lucide-react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styles from './HomePage.module.css'
 import DfaDemo from '../components/DfaDemo'
 import ZedMascot from '../components/ZedMascot'
-import AuthModal from '../components/AuthModal'
 import { useAuth } from '../hooks/useAuth'
 import contributors from 'virtual:contributors'
 
@@ -38,7 +36,6 @@ function monogram(name: string): { initials: string; color: string } {
 export default function HomePage() {
   const navigate = useNavigate()
   const { user, loading } = useAuth()
-  const [authOpen, setAuthOpen] = useState(false)
 
   if (!loading && user) return <Navigate to="/dashboard" replace />
 
@@ -52,19 +49,12 @@ export default function HomePage() {
           <span className={styles.navName}>ZFlap</span>
         </div>
         <div className={styles.navRight}>
-          <button className={styles.btnGhost} onClick={() => setAuthOpen(true)}>Log in</button>
-          <button className={styles.btnPrimary} onClick={() => setAuthOpen(true)}>
+          <Link to="/login" className={styles.btnGhost}>Log in</Link>
+          <Link to="/signup" className={styles.btnPrimary}>
             Sign up <ArrowRight size={14} />
-          </button>
+          </Link>
         </div>
       </nav>
-
-      {authOpen && (
-        <AuthModal
-          onClose={() => setAuthOpen(false)}
-          onAuthenticated={() => navigate('/dashboard')}
-        />
-      )}
 
       {/* ── Hero + live demo ── */}
       <section className={styles.hero}>

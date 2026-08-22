@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Download, Upload, Save, Check, Pencil, Play, Share2, User, Cpu, ChevronDown, FileJson, Image as ImageIcon, FileText, Moon, Sun } from 'lucide-react'
 import ZedMascot from '../components/ZedMascot'
 import DotCanvas from '../components/editor/DotCanvas'
@@ -9,7 +9,6 @@ import FloatingToolbar from '../components/editor/FloatingToolbar'
 import type { Tool } from '../components/editor/FloatingToolbar'
 import SimPanel from '../components/editor/SimPanel'
 import RegexWorkspace from '../components/editor/RegexWorkspace'
-import AuthModal from '../components/AuthModal'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAutomaton, classifyAutomaton, detectAutomatonType } from '../hooks/useAutomaton'
 import type { RemoteAction } from '../hooks/useAutomaton'
@@ -26,6 +25,7 @@ type Mode = 'edit' | 'simulate'
 export default function EditorPage() {
   const { id } = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
 
   const [tool, setTool] = useState<Tool>('select')
@@ -40,7 +40,13 @@ export default function EditorPage() {
   const [isPublic, setIsPublic] = useState(false)
   const [saving, setSaving]     = useState(false)
   const [copied, setCopied]     = useState(false)
-  const [authOpen, setAuthOpen] = useState(false)
+  // Signing in is a page now, so anything that needs an account sends the
+  // person there and asks to be returned to this exact editor afterwards. An
+  // unsaved diagram is kept in localStorage meanwhile (see persistLocal), so
+  // the round trip does not cost any work.
+  const gotoSignIn = useCallback(() => {
+    navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`)
+  }, [navigate, location.pathname, location.search])
   const [exportOpen, setExportOpen] = useState(false)
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
   const [errorToast, setErrorToast] = useState<string | null>(null)
@@ -247,7 +253,7 @@ export default function EditorPage() {
     // Creating a new automaton needs an account; updating an existing
     // public one doesn't — RLS allows anyone to write while it's public,
     // which is what makes anonymous live collaborators able to save at all.
-    if (!docId && !user) { setAuthOpen(true); return }
+    if (!docId && !user) { gotoSignIn(); return }
     setSaving(true)
     try {
       const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
@@ -264,7 +270,7 @@ export default function EditorPage() {
     } finally {
       setSaving(false)
     }
-  }, [user, docId, name, automaton.states, automaton.transitions, automaton.initialId, navigate])
+  }, [user, docId, name, automaton.states, automaton.transitions, automaton.initialId, navigate, gotoSignIn])
   handleSaveRef.current = handleSave
 
   const handleShare = useCallback(async () => {
@@ -275,7 +281,7 @@ export default function EditorPage() {
       // create it first; otherwise the existing auth flow is used.
       if (!shareId) {
         if (!user) {
-          setAuthOpen(true)
+          gotoSignIn()
           return
         }
         const payload = { states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
@@ -286,7 +292,7 @@ export default function EditorPage() {
       }
 
       if (!isPublic) { await setPublic(shareId, true); setIsPublic(true) }
-      await navigator.clipboard.writeText(`${location.origin}/editor/${shareId}`)
+      await navigator.clipboard.writeText(`${window.location.origin}/editor/${shareId}`)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch (err) {
@@ -294,7 +300,7 @@ export default function EditorPage() {
       setErrorToast("Couldn't create a share link — try again.")
       setTimeout(() => setErrorToast(null), 3000)
     }
-  }, [docId, isPublic, user, name, automaton.states, automaton.transitions, automaton.initialId, navigate])
+  }, [docId, isPublic, user, name, automaton.states, automaton.transitions, automaton.initialId, navigate, gotoSignIn])
 
   const exportModel = { name, states: automaton.states, transitions: automaton.transitions, initialId: automaton.initialId, automatonType: automaton.automatonType, regex: automaton.regex }
 
@@ -663,7 +669,7 @@ export default function EditorPage() {
         {!user && (
           <>
             <div className={s.topbarDivider} />
-            <button className={s.topbarBtnPrimary} onClick={() => setAuthOpen(true)}>
+            <button className={s.topbarBtnPrimary} onClick={gotoSignIn}>
               <User size={14} /> Sign in
             </button>
           </>
@@ -747,7 +753,6 @@ export default function EditorPage() {
         )}
       </div>}
 
-      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
 
 
     </div>

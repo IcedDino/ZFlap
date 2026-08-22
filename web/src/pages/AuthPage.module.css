@@ -1,0 +1,353 @@
+/* Standalone auth page.
+   Everything here is drawn from the app's existing tokens, so the page follows
+   the light/dark theme without any rules of its own. */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  /* The editor's dot grid, faint — this is the same workspace, signed out. */
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 26px 26px;
+  background-position: -13px -13px;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brandName {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+.back:hover {
+  color: var(--text);
+  background: var(--bg-card-hover);
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 20px 64px;
+}
+
+.card {
+  width: 100%;
+  max-width: 430px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0 34px 34px;
+  box-shadow: 0 1px 2px rgba(26, 24, 20, 0.04), 0 12px 40px rgba(26, 24, 20, 0.06);
+}
+
+/* ── The machine ──────────────────────────────────────────────────────────── */
+
+.machineWrap {
+  margin: 0 -34px 26px;
+  padding: 22px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+  border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0;
+}
+
+.machine {
+  display: block;
+  width: 100%;
+  max-width: 268px;
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+/* State groups: the circle carries the colour, the label follows it. */
+.stateIdle circle,
+.statePast circle,
+.stateLive circle,
+.stateAccepted circle,
+.stateRejected circle {
+  fill: var(--bg-card);
+  stroke-width: 1.5;
+  transition: stroke 0.28s ease, fill 0.28s ease;
+}
+
+.stateIdle text,
+.statePast text,
+.stateLive text,
+.stateAccepted text,
+.stateRejected text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  transition: fill 0.28s ease;
+}
+
+.stateIdle circle { stroke: var(--border); }
+.stateIdle text   { fill: var(--text-dim); }
+
+.statePast circle { stroke: var(--border-light); }
+.statePast text   { fill: var(--text-muted); }
+
+.stateLive circle { stroke: var(--orange); fill: var(--orange-light); }
+.stateLive text   { fill: var(--orange-dark); }
+
+.stateAccepted circle { stroke: var(--green); fill: var(--green-bg); }
+.stateAccepted text   { fill: var(--green); }
+
+.stateRejected circle { stroke: var(--red); fill: var(--red-bg); }
+.stateRejected text   { fill: var(--red); }
+
+/* The outer ring is what marks a state as accepting: stroke only, so the inner
+   circle's fill reads through. Declared after the fills above so it wins on
+   source order at equal specificity. */
+circle.acceptRing { fill: none; }
+
+.edgeStart,
+.edgeIdle,
+.edgeTaken,
+.edgeRejected {
+  stroke-width: 1.5;
+  fill: none;
+  transition: stroke 0.28s ease;
+}
+
+.edgeStart    { stroke: var(--text-dim); }
+
+.arrowStart,
+.arrowIdle,
+.arrowTaken,
+.arrowRejected { transition: fill 0.28s ease; }
+
+.arrowStart    { fill: var(--text-dim); }
+.arrowIdle     { fill: var(--border); }
+.arrowTaken    { fill: var(--orange); }
+.arrowRejected { fill: var(--red); }
+
+.edgeIdle     { stroke: var(--border); }
+.edgeTaken    { stroke: var(--orange); }
+.edgeRejected { stroke: var(--red); }
+
+.symbol {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  fill: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.status {
+  margin-top: 12px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+/* ── Copy ─────────────────────────────────────────────────────────────────── */
+
+.heading {
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.lede {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.error {
+  margin-top: 18px;
+  padding: 10px 13px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--red);
+  background: var(--red-bg);
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Form ─────────────────────────────────────────────────────────────────── */
+
+.form {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* Uppercase mono labels are the editor's utility voice, reused here. */
+.label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.input:hover  { border-color: var(--border); }
+.input:focus  { border-color: var(--orange); background: var(--bg-card); }
+.input:focus-visible {
+  outline: 2px solid var(--orange-border);
+  outline-offset: 1px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--orange);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 3px rgba(249, 115, 22, 0.25);
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.submit:hover:not(:disabled) {
+  background: var(--orange-dark);
+  border-color: var(--orange-dark);
+}
+.submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.submit:focus-visible {
+  outline: 2px solid var(--orange-deeper);
+  outline-offset: 2px;
+}
+
+.done {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.done .submit {
+  margin-top: 20px;
+  align-self: stretch;
+}
+
+/* ── Below the card ───────────────────────────────────────────────────────── */
+
+.switch {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.switchLink {
+  color: var(--orange-dark);
+  font-weight: 600;
+  border-radius: 3px;
+}
+.switchLink:hover { text-decoration: underline; }
+.switchLink:focus-visible {
+  outline: 2px solid var(--orange-border);
+  outline-offset: 2px;
+}
+
+.escape {
+  max-width: 430px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.escape .switchLink { font-weight: 500; }
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+  .topbar { padding: 14px 18px; }
+  .back span { display: none; }
+  .card {
+    padding: 0 22px 26px;
+    border-radius: var(--radius-md);
+  }
+  .machineWrap {
+    margin: 0 -22px 22px;
+    padding: 18px 14px 12px;
+    border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
+  }
+  .heading { font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateIdle circle, .statePast circle, .stateLive circle,
+  .stateAccepted circle, .stateRejected circle,
+  .stateIdle text, .statePast text, .stateLive text,
+  .stateAccepted text, .stateRejected text,
+  .edgeStart, .edgeIdle, .edgeTaken, .edgeRejected,
+  .arrowStart, .arrowIdle, .arrowTaken, .arrowRejected {
+    transition: none;
+  }
+}
