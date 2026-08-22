@@ -285,7 +285,9 @@
 
 .teamGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* The list comes from git history, so it has no fixed length — let the
+     columns follow however many contributors the repo has. */
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 20px;
 }
 
@@ -321,6 +323,25 @@
   border-color: var(--orange-border);
 }
 
+/* Stand-in avatar for a contributor with no linked GitHub account. */
+.teamMonogram {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--border);
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.teamCard:hover .teamMonogram {
+  border-color: var(--orange-border);
+}
+
 .teamInfo {
   display: flex;
   flex-direction: column;
@@ -338,6 +359,12 @@
   font-size: 14px;
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
+}
+
+.teamCommits {
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
@@ -392,5 +419,7 @@
   .team       { padding: 48px 20px; }
   .teamGrid   { grid-template-columns: 1fr; gap: 16px; }
   .teamCard   { padding: 28px 20px; }
-  .teamAvatar { width: 64px; height: 64px; }
+  .teamAvatar,
+  .teamMonogram { width: 64px; height: 64px; }
+  .teamMonogram { font-size: 22px; }
 }

@@ -6,6 +6,7 @@ import DfaDemo from '../components/DfaDemo'
 import ZedMascot from '../components/ZedMascot'
 import AuthModal from '../components/AuthModal'
 import { useAuth } from '../hooks/useAuth'
+import contributors from 'virtual:contributors'
 
 function GithubMark({ size = 18 }: { size?: number }) {
   return (
@@ -13,6 +14,23 @@ function GithubMark({ size = 18 }: { size?: number }) {
       <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.53-1.33-1.29-1.69-1.29-1.69-1.05-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.58.24 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.07.78 2.15v3.19c0 .3.21.66.8.55A10.51 10.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
     </svg>
   )
+}
+
+// Fallback for a contributor GitHub could not resolve to an account: initials
+// on a colour picked from their name, so the same person is always the same
+// colour without storing anything.
+const MONOGRAM_COLORS = ['#F97316', '#2563EB', '#16A34A', '#DC2626', '#9333EA', '#0891B2']
+
+function monogram(name: string): { initials: string; color: string } {
+  const words = name.split(/[\s._-]+/).filter(Boolean)
+  const initials = (words.length > 1
+    ? words[0][0] + words[words.length - 1][0]
+    : name.slice(0, 2)
+  ).toUpperCase()
+
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return { initials, color: MONOGRAM_COLORS[hash % MONOGRAM_COLORS.length] }
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -71,8 +89,8 @@ export default function HomePage() {
             <button className={styles.btnPrimary} onClick={() => navigate('/editor')}>
               Open in browser <ArrowRight size={15} />
             </button>
-            <a href="https://github.com/IcedDino/ZFlap" className={styles.btnGhost}>
-              View on GitHub
+            <a href="https://github.com/IcedDino/ZFlap" className={styles.btnGhost} target="_blank" rel="noreferrer">
+              <GithubMark size={16} /> View on GitHub
             </a>
           </div>
 
@@ -150,26 +168,46 @@ export default function HomePage() {
       </section>
 
 
-      {/* ── Team ── */}
-      <section className={styles.team}>
-        <div className={styles.sectionLabel}>Team</div>
-        <h2 className={styles.sectionTitle}>Built by</h2>
-        <div className={styles.teamGrid}>
-          {[
-            { name: 'Yocsan Luevano', username: 'yocsan15', avatar: 'https://avatars.githubusercontent.com/u/142452894?v=4', url: 'https://github.com/yocsan15' },
-            { name: 'Jovany', username: 'IcedDino', avatar: 'https://avatars.githubusercontent.com/u/140675889?v=4', url: 'https://github.com/IcedDino' },
-            { name: 'Martin Nuñez', username: 'tzisai', avatar: 'https://avatars.githubusercontent.com/u/138941008?v=4', url: 'https://github.com/tzisai' },
-          ].map(m => (
-            <a key={m.username} href={m.url} className={styles.teamCard} target="_blank" rel="noreferrer">
-              <img src={m.avatar} alt={m.name} className={styles.teamAvatar} />
-              <div className={styles.teamInfo}>
-                <span className={styles.teamName}>{m.name}</span>
-                <span className={styles.teamUsername}>@{m.username}</span>
-              </div>
-            </a>
-          ))}
-        </div>
-      </section>
+      {/* ── Contributors ── */}
+      {/* Read from git history at build time (see plugins/contributors.ts), so
+          this list never goes stale against the repo. */}
+      {contributors.length > 0 && (
+        <section className={styles.team}>
+          <div className={styles.sectionLabel}>Contributors</div>
+          <h2 className={styles.sectionTitle}>Everyone who has committed</h2>
+          <div className={styles.teamGrid}>
+            {contributors.map(person => {
+              const mark = monogram(person.name)
+              const card = (
+                <>
+                  {person.avatar
+                    ? <img src={person.avatar} alt="" className={styles.teamAvatar} />
+                    : (
+                      <div className={styles.teamMonogram} style={{ background: mark.color }} aria-hidden="true">
+                        {mark.initials}
+                      </div>
+                    )}
+                  <div className={styles.teamInfo}>
+                    <span className={styles.teamName}>{person.name}</span>
+                    {person.login && <span className={styles.teamUsername}>@{person.login}</span>}
+                    <span className={styles.teamCommits}>
+                      {person.commits} {person.commits === 1 ? 'commit' : 'commits'}
+                    </span>
+                  </div>
+                </>
+              )
+
+              return person.url
+                ? (
+                  <a key={person.email} href={person.url} className={styles.teamCard} target="_blank" rel="noreferrer">
+                    {card}
+                  </a>
+                )
+                : <div key={person.email} className={styles.teamCard}>{card}</div>
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── Footer ── */}
       <footer className={styles.footer}>

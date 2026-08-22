@@ -1,0 +1,15 @@
+# Canonical contributor identities.
+#
+# The landing page builds its contributor list from `git log`, which sees one
+# identity per name/email pair — so the same person appears several times after
+# switching machines or email addresses. This file collapses them.
+#
+# Format: Canonical Name <canonical@email> Commit Name <commit@email>
+# The canonical email is the one GitHub can resolve to an account, so avatars
+# resolve for the merged identity rather than the stray one.
+
+Jovany <nullpointer@floresr.com> IcedDino <nullpointer@floresr.com>
+Yocsan Luevano <jaquyduron157@gmail.com> yocsan15 <jaquyduron157@gmail.com>
+Yocsan Luevano <jaquyduron157@gmail.com> Yocsan <jaquyduron@gmail.com>
+Martin Nuñez <raisainu@gmail.com> Martin_Ryu <raisainu@gmail.com>
+Donatelatrump <donnetgastelum@gmail.com> Don.Net <97036346+Donatelatrump@users.noreply.github.com>
