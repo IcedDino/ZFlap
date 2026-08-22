@@ -59,7 +59,8 @@ export default function EditorPage() {
   const anonIdentityRef = useRef(randomAnonIdentity()) // stable per session — only used while signed out
   const lastCursorRef   = useRef<{ x: number; y: number } | null>(null)
 
-  // MOVE_STATE / MOVE_STATES fire on every mousemove during a drag (dozens/sec) —
+  // MOVE_STATE / MOVE_STATES / CURVE_TRANSITION fire on every mousemove during a
+  // drag (dozens/sec) —
   // broadcasting each one unthrottled makes channel.send() (a real
   // network op, occasionally an actual REST fallback fetch) fight the
   // drag for CPU/socket time and lags the person doing the dragging,
@@ -101,10 +102,15 @@ export default function EditorPage() {
   function handleLocalAction(action: RemoteAction) {
     if (channelRef.current) {
       const channel = channelRef.current
-      if (action.type === 'MOVE_STATE' || action.type === 'MOVE_STATES') {
+      if (action.type === 'MOVE_STATE' || action.type === 'MOVE_STATES' || action.type === 'CURVE_TRANSITION') {
         const now = performance.now()
         const elapsed = now - lastMoveSentRef.current
-        const moveKey = action.type === 'MOVE_STATE' ? action.id : '__bulk__'
+        // Dragging an edge's curve streams updates at mousemove rate exactly
+        // like dragging a state, so it shares this throttle. Its key is
+        // namespaced so a transition id can never shadow a state's slot.
+        const moveKey = action.type === 'MOVE_STATE' ? action.id
+                      : action.type === 'CURVE_TRANSITION' ? `curve:${action.id}`
+                      : '__bulk__'
         pendingMovesRef.current.set(moveKey, action)
         if (elapsed >= 33) {
           lastMoveSentRef.current = now
@@ -529,6 +535,7 @@ export default function EditorPage() {
           onSetInitial={automaton.setInitial}
           onAddTransition={automaton.addTransition}
           onEditTransition={automaton.editTransition}
+          onCurveTransition={automaton.curveTransition}
           onDeleteTransition={automaton.deleteTransition}
           onSelect={automaton.select}
           onDeleteSelected={automaton.deleteSelected}

@@ -9,6 +9,7 @@ interface ExportModel {
 }
 
 const CURVE_OFF = 32
+const LOOP_R = 46
 const MARGIN = 110
 
 function esc(value: string): string {
@@ -25,31 +26,46 @@ function norm(dx: number, dy: number): [number, number] {
   return [dx / len, dy / len]
 }
 
+// Kept in step with DiagramCanvas: a self-loop is the major arc of a circle
+// that overlaps the state, and `curve` carries that circle's radius.
 function transitionPath(
   from: FAState,
   to: FAState,
   isTwin: boolean,
-  isForward: boolean
+  isForward: boolean,
+  curve?: number
 ) {
   if (from.id === to.id) {
-    const sp = 14
-    const h = 68
-    const x1 = from.x - sp
-    const y1 = from.y - STATE_R + 2
-    const x2 = from.x + sp
-    const y2 = from.y - STATE_R + 2
-    const c1x = from.x - h * 0.55
-    const c1y = from.y - h
-    const c2x = from.x + h * 0.55
-    const c2y = from.y - h
+    const r = Math.min(
+      STATE_R * 4,
+      Math.max(20, curve ?? LOOP_R)
+    )
+
+    const dist = STATE_R + r * 0.55
+
+    const a =
+      (dist * dist +
+        STATE_R * STATE_R -
+        r * r) /
+      (2 * dist)
+
+    const half = Math.sqrt(
+      Math.max(
+        STATE_R * STATE_R - a * a,
+        1
+      )
+    )
+
+    const ay = from.y - a
+    const topY = from.y - dist - r
 
     return {
-      d: `M ${x1},${y1} C ${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}`,
+      d: `M ${from.x - half},${ay} A ${r} ${r} 0 1 1 ${from.x + half},${ay}`,
       lx: from.x,
-      ly: from.y - h - 10,
+      ly: topY - 12,
       extra: [
-        { x: c1x, y: c1y },
-        { x: c2x, y: c2y },
+        { x: from.x - r, y: topY },
+        { x: from.x + r, y: topY },
       ],
     }
   }
@@ -59,7 +75,7 @@ function transitionPath(
   const [ux, uy] = norm(dx, dy)
   const [px, py] = [-uy, ux]
 
-  if (!isTwin) {
+  if (curve === undefined && !isTwin) {
     const x1 = from.x + ux * STATE_R
     const y1 = from.y + uy * STATE_R
     const x2 = to.x - ux * STATE_R
@@ -73,13 +89,26 @@ function transitionPath(
     }
   }
 
+  // A hand-dragged bend is stored along the canonical (lower id → higher id)
+  // perpendicular, so mirror the canvas and read it from that direction rather
+  // than from this edge's own from→to orientation.
   const sign = isForward ? 1 : -1
+
+  const [cux, cuy] = isForward
+    ? [ux, uy]
+    : [-ux, -uy]
+
+  const [cpxUnit, cpyUnit] = [-cuy, cux]
+
+  const bend =
+    curve ?? CURVE_OFF * sign
+
   const cpx =
     (from.x + to.x) / 2 +
-    px * CURVE_OFF * sign
+    cpxUnit * bend
   const cpy =
     (from.y + to.y) / 2 +
-    py * CURVE_OFF * sign
+    cpyUnit * bend
 
   const [fd0, fd1] = norm(
     cpx - from.x,
@@ -106,10 +135,17 @@ function transitionPath(
     0.5 * cpy +
     0.25 * y2
 
+  const [nx, ny] =
+    bend > 0
+      ? [cpxUnit, cpyUnit]
+      : bend < 0
+        ? [-cpxUnit, -cpyUnit]
+        : [-px, -py]
+
   return {
     d: `M ${x1},${y1} Q ${cpx},${cpy} ${x2},${y2}`,
-    lx: bx + px * CURVE_OFF * sign * 0.28,
-    ly: by + py * CURVE_OFF * sign * 0.28,
+    lx: bx + nx * 14,
+    ly: by + ny * 14,
     extra: [{ x: cpx, y: cpy }],
   }
 }
@@ -158,7 +194,8 @@ function bounds(model: ExportModel) {
       from,
       to,
       isTwin,
-      isForward
+      isForward,
+      t.curve
     )
 
     xs.push(
@@ -258,7 +295,8 @@ export function buildAutomatonSvg(
           from,
           to,
           isTwin,
-          isForward
+          isForward,
+          t.curve
         )
 
         return `

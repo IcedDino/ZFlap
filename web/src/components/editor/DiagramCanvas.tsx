@@ -14,8 +14,14 @@ const LABEL_LINE = 14   // line height of a stacked multi-symbol transition labe
 // centre is half the cap-height, so glyphs land slightly above their anchor.
 // Nudging back down keeps the clearance equal above and below the stroke.
 const LABEL_RISE = 2    // optical-centre correction, world units
-const LOOP_R    = 46    // radius of the self-loop circle
-const LOOP_DIST = STATE_R + LOOP_R * 0.55   // self-loop centre, measured above the state centre
+const LOOP_R     = 46   // default radius of the self-loop circle
+const LOOP_MIN_R = 20   // below this the loop barely clears the state
+// The loop circle must still cross the state circle to have attachment points.
+// dist = STATE_R + r*0.55 stays inside |STATE_R - r| < dist < STATE_R + r for
+// any r below STATE_R * 40/9; round down for margin.
+const LOOP_MAX_R = STATE_R * 4
+const MAX_BEND   = 1400 // clamp on a hand-dragged arc, world units
+const BEND_SNAP  = 12   // drag within this of the automatic arc releases the override
 const MIN_ZOOM  = 0.2
 const MAX_ZOOM  = 3.0
 const MM_W      = 168   // minimap pixel width
@@ -25,6 +31,8 @@ const MM_H      = 108   // minimap pixel height
 
 export interface View { panX: number; panY: number; zoom: number }
 
+interface EdgeLayout { isTwin: boolean; isForward: boolean; fanIndex: number; fanCount: number }
+
 type Drag =
   | { mode: 'idle' }
   | { mode: 'pan';   startPanX: number; startPanY: number; startSX: number; startSY: number }
@@ -32,6 +40,7 @@ type Drag =
   | { mode: 'group'; startX: number; startY: number; origins: Map<string, { x: number; y: number }> }
   | { mode: 'rect-select'; startSX: number; startSY: number; currentSX: number; currentSY: number }
   | { mode: 'transition'; fromId: string }
+  | { mode: 'curve'; transId: string; moved: boolean; layout: EdgeLayout }
 
 interface TransitionDragState {
   fromId: string
@@ -183,38 +192,121 @@ function getTransId(target: EventTarget | null): string | null {
 // A self-loop is a real circle that overlaps the state, drawn as the major arc
 // between the two circle intersections. That reads as a round loop instead of
 // the flat teardrop a shallow bezier produces at this state radius.
-function selfLoopPath(x: number, y: number): { d: string; topY: number } {
-  const a = (LOOP_DIST * LOOP_DIST + STATE_R * STATE_R - LOOP_R * LOOP_R) / (2 * LOOP_DIST)
+function loopDist(r: number): number { return STATE_R + r * 0.55 }
+
+function clampLoopRadius(r: number): number {
+  return Math.min(LOOP_MAX_R, Math.max(LOOP_MIN_R, r))
+}
+
+function selfLoopPath(x: number, y: number, radius = LOOP_R): { d: string; topY: number } {
+  const r = clampLoopRadius(radius)
+  const dist = loopDist(r)
+  const a = (dist * dist + STATE_R * STATE_R - r * r) / (2 * dist)
   const half = Math.sqrt(Math.max(STATE_R * STATE_R - a * a, 1))   // half-chord between intersections
   const ay = y - a
   return {
-    d: `M ${x - half},${ay} A ${LOOP_R} ${LOOP_R} 0 1 1 ${x + half},${ay}`,
-    topY: y - LOOP_DIST - LOOP_R,
+    d: `M ${x - half},${ay} A ${r} ${r} 0 1 1 ${x + half},${ay}`,
+    topY: y - dist - r,
   }
 }
 
 // lx/ly anchor the label stack; nx/ny is the unit normal pointing away from the
 // stroke, so the renderer can grow a multi-symbol stack without crossing the line.
-interface TransPath { d: string; lx: number; ly: number; nx: number; ny: number }
+// ax/ay is the apex — the point on the stroke the drag handle rides.
+interface TransPath { d: string; lx: number; ly: number; nx: number; ny: number; ax: number; ay: number }
+
+// The automatic arc for an edge, in the same units a hand-dragged `curve`
+// stores. Shared with the drag handler so it can tell "back at the default"
+// from "deliberately flat" and drop the override instead of pinning it.
+function autoBend(isTwin: boolean, isForward: boolean, fanIndex: number, fanCount: number): number {
+  const fanOffset = fanCount > 1 ? (fanIndex - (fanCount - 1) / 2) * FAN_OFF : 0
+  return (isTwin ? CURVE_OFF * (isForward ? 1 : -1) : 0) + fanOffset
+}
+
+// Resolves every edge's twin/fan routing in one pass. Both the renderer and the
+// curve-drag handler read from this, so a dragged edge is always measured
+// against the exact lane it was drawn in.
+function computeEdgeLayout(
+  transitions: FATransition[],
+  stateById: Map<string, FAState>,
+): Map<string, EdgeLayout> {
+  const reverseKeys = new Set(transitions.map(t => `${t.toId}\0${t.fromId}`))
+
+  // Fan transitions that share a source into deterministic visual lanes.
+  // Transitions to the same target are already merged in useAutomaton, so each
+  // entry here represents a distinct visual edge.
+  const outgoing = new Map<string, FATransition[]>()
+  for (const t of transitions) {
+    if (t.fromId === t.toId) continue
+    const group = outgoing.get(t.fromId)
+    if (group) group.push(t)
+    else outgoing.set(t.fromId, [t])
+  }
+  for (const group of outgoing.values()) {
+    group.sort((a, b) => {
+      const ta = stateById.get(a.toId), tb = stateById.get(b.toId)
+      if (!ta || !tb) return a.toId.localeCompare(b.toId)
+      const sa = stateById.get(a.fromId)!
+      const aa = Math.atan2(ta.y - sa.y, ta.x - sa.x)
+      const ab = Math.atan2(tb.y - sa.y, tb.x - sa.x)
+      return aa - ab || a.toId.localeCompare(b.toId)
+    })
+  }
+
+  const layout = new Map<string, EdgeLayout>()
+  for (const t of transitions) {
+    const isTwin = reverseKeys.has(`${t.fromId}\0${t.toId}`)
+    const group  = outgoing.get(t.fromId) ?? []
+    layout.set(t.id, {
+      isTwin,
+      isForward: !isTwin || t.fromId < t.toId,
+      fanIndex:  Math.max(0, group.findIndex(edge => edge.id === t.id)),
+      fanCount:  group.length,
+    })
+  }
+  return layout
+}
+
+// Turns a cursor position into the `curve` value that puts the edge's apex under
+// it. The apex is the quadratic's midpoint, which sits half way to the control
+// point — but the two endpoints are pushed off the chord as well, since they
+// follow the control point's direction around each state's rim. Working that
+// through, apexPerp = bend * (0.5 + 0.5 * STATE_R / hypot(halfChord, bend)),
+// which has bend on both sides; a few fixed-point passes settle it to well
+// under a pixel.
+function bendForCursor(from: FAState, to: FAState, isForward: boolean, wx: number, wy: number): number {
+  const canonicalFrom = isForward ? from : to
+  const canonicalTo   = isForward ? to : from
+  const [cux, cuy] = norm(canonicalTo.x - canonicalFrom.x, canonicalTo.y - canonicalFrom.y)
+  const target = (wx - (from.x + to.x) / 2) * -cuy + (wy - (from.y + to.y) / 2) * cux
+
+  const halfChord = Math.hypot(to.x - from.x, to.y - from.y) / 2
+  let bend = target * 2
+  for (let i = 0; i < 4; i++) {
+    const h = Math.max(Math.hypot(halfChord, bend), 1)
+    bend = target / (0.5 + 0.5 * STATE_R / h)
+  }
+  return Math.max(-MAX_BEND, Math.min(MAX_BEND, bend))
+}
 
 function computeTransPath(
   from: FAState, to: FAState,
   isTwin: boolean, isForward: boolean,
-  fanIndex = 0, fanCount = 1
+  fanIndex = 0, fanCount = 1,
+  curve?: number
 ): TransPath {
-  // Self-loop
+  // Self-loop — `curve` carries the loop's radius rather than a bend.
   if (from.id === to.id) {
-    const loop = selfLoopPath(from.x, from.y)
-    return { d: loop.d, lx: from.x, ly: loop.topY - 12, nx: 0, ny: -1 }
+    const loop = selfLoopPath(from.x, from.y, curve ?? LOOP_R)
+    return { d: loop.d, lx: from.x, ly: loop.topY - 12, nx: 0, ny: -1, ax: from.x, ay: loop.topY }
   }
 
   const dx = to.x - from.x, dy = to.y - from.y
   const [ux, uy] = norm(dx, dy)
   const [px, py] = [-uy, ux]   // perpendicular
   const hasFan = fanCount > 1
-  const fanOffset = hasFan ? (fanIndex - (fanCount - 1) / 2) * FAN_OFF : 0
 
-  if (!isTwin && !hasFan) {
+  if (curve === undefined && !isTwin && !hasFan) {
     // Straight
     const x1 = from.x + ux * STATE_R, y1 = from.y + uy * STATE_R
     const x2 = to.x   - ux * STATE_R, y2 = to.y   - uy * STATE_R
@@ -222,6 +314,7 @@ function computeTransPath(
       d: `M ${x1},${y1} L ${x2},${y2}`,
       lx: (x1+x2)/2 - px*LABEL_GAP, ly: (y1+y2)/2 - py*LABEL_GAP,
       nx: -px, ny: -py,
+      ax: (x1+x2)/2, ay: (y1+y2)/2,
     }
   }
 
@@ -234,9 +327,7 @@ function computeTransPath(
   const canonicalTo   = isForward ? to : from
   const [cux, cuy] = norm(canonicalTo.x - canonicalFrom.x, canonicalTo.y - canonicalFrom.y)
   const [cpxUnit, cpyUnit] = [-cuy, cux]
-  const bendSign = isTwin ? (isForward ? 1 : -1) : 1
-  const baseCurve = isTwin ? CURVE_OFF : 0
-  const bend = baseCurve * bendSign + fanOffset
+  const bend = curve ?? autoBend(isTwin, isForward, fanIndex, fanCount)
   const cpx = (from.x + to.x) / 2 + cpxUnit * bend
   const cpy = (from.y + to.y) / 2 + cpyUnit * bend
 
@@ -261,6 +352,7 @@ function computeTransPath(
     lx: bx + nx * LABEL_GAP,
     ly: by + ny * LABEL_GAP,
     nx, ny,
+    ax: bx, ay: by,
   }
 }
 
@@ -294,6 +386,7 @@ interface Props {
   onSetInitial:       (id: string) => void
   onAddTransition:    (fromId: string, toId: string, label: string, kind?: FATransitionKind, rangeStart?: string, rangeEnd?: string) => void
   onEditTransition?:  (id: string, label: string, kind?: FATransitionKind, rangeStart?: string, rangeEnd?: string) => void
+  onCurveTransition?: (id: string, curve: number | undefined) => void
   onDeleteTransition: (id: string) => void
   onSelect:           (id: string | null) => void
   onDeleteSelected:   () => void
@@ -307,7 +400,7 @@ export default function DiagramCanvas({
   states, transitions, initialId, selectedId, tool, automatonType = 'dfa',
   activeStateIds, activeTransIds, readOnly, hideMinimap, peers,
   onAddState, onMoveStates, onDeleteState, onToggleFinal, onRenameState, onSetInitial,
-  onAddTransition, onEditTransition, onDeleteTransition, onSelect, onDeleteSelected,
+  onAddTransition, onEditTransition, onCurveTransition, onDeleteTransition, onSelect, onDeleteSelected,
   onViewChange, onCursorMove,
 }: Props) {
   const isTmType = automatonType.startsWith('tm-')
@@ -358,6 +451,7 @@ export default function DiagramCanvas({
   const cbSetInitial  = useRef(onSetInitial)
   const cbAddTrans    = useRef(onAddTransition)
   const cbEditTrans   = useRef(onEditTransition)
+  const cbCurveTrans  = useRef(onCurveTransition)
   const cbDelTrans    = useRef(onDeleteTransition)
   const cbSelect      = useRef(onSelect)
   const cbDelSelected   = useRef(onDeleteSelected)
@@ -376,6 +470,7 @@ export default function DiagramCanvas({
   cbSetInitial.current  = onSetInitial
   cbAddTrans.current    = onAddTransition
   cbEditTrans.current   = onEditTransition
+  cbCurveTrans.current  = onCurveTransition
   cbDelTrans.current    = onDeleteTransition
   cbSelect.current      = onSelect
   cbDelSelected.current = onDeleteSelected
@@ -608,7 +703,19 @@ export default function DiagramCanvas({
       const tid = getTransId(e.target)
       if (tid) {
         if (!ro && currentTool === 'delete') { cbDelTrans.current(tid); return }
-        if (!ro && currentTool === 'select') { cbSelect.current(tid); return }
+        if (!ro && currentTool === 'select') {
+          cbSelect.current(tid)
+          // Arm a curve drag. Nothing is written until the pointer actually
+          // moves, so a plain click stays a plain select and a double-click
+          // still reaches the label editor. The edge's lane is resolved once
+          // here rather than on every move — no edge can be added mid-drag.
+          const layout = computeEdgeLayout(
+            transRef.current,
+            new Map(statesRef.current.map(st => [st.id, st])),
+          ).get(tid)
+          if (layout) dragRef.current = { mode: 'curve', transId: tid, moved: false, layout }
+          return
+        }
         return
       }
 
@@ -770,6 +877,34 @@ export default function DiagramCanvas({
         const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
         const dx = w.x - d.startX, dy = w.y - d.startY
         cbMoveStates.current([...d.origins].map(([id, p]) => ({ id, x: p.x + dx, y: p.y + dy })))
+        return
+      }
+
+      if (d.mode === 'curve') {
+        const t = transRef.current.find(edge => edge.id === d.transId)
+        if (!t) return
+        const from = statesRef.current.find(st => st.id === t.fromId)
+        const to   = statesRef.current.find(st => st.id === t.toId)
+        if (!from || !to) return
+
+        touchMovedRef.current = true
+        dragRef.current = { ...d, moved: true }
+        const w = toWorld(e.clientX, e.clientY, svg, viewRef.current)
+
+        if (from.id === to.id) {
+          // A loop has no chord, so its radius follows how far out the cursor is
+          // pulled. Its crown sits at STATE_R + 1.55r from the centre (loopDist
+          // plus the radius itself), so inverting that gives the radius back.
+          const reach = Math.hypot(w.x - from.x, w.y - from.y)
+          const raw = clampLoopRadius((reach - STATE_R) / 1.55)
+          cbCurveTrans.current?.(t.id, Math.abs(raw - LOOP_R) < BEND_SNAP ? undefined : raw)
+          return
+        }
+
+        const { isTwin, isForward, fanIndex, fanCount } = d.layout
+        const bend = bendForCursor(from, to, isForward, w.x, w.y)
+        const auto = autoBend(isTwin, isForward, fanIndex, fanCount)
+        cbCurveTrans.current?.(t.id, Math.abs(bend - auto) < BEND_SNAP ? undefined : bend)
         return
       }
 
@@ -1062,8 +1197,7 @@ export default function DiagramCanvas({
   // ── Twin detection (bidirectional pairs) ─────────────────────────────────────
 
   const stateById = new Map(states.map(st => [st.id, st]))
-  const reverseTransitionKeys = new Set(transitions.map(t => `${t.toId}\0${t.fromId}`))
-  const twinSet = new Set(transitions.filter(t => reverseTransitionKeys.has(`${t.fromId}\0${t.toId}`)).map(t => t.id))
+  const edgeLayout = computeEdgeLayout(transitions, stateById)
 
   // ── Transition preview geometry ───────────────────────────────────────────────
 
@@ -1088,26 +1222,6 @@ export default function DiagramCanvas({
   })()
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  // Fan transitions that share a source into deterministic visual lanes.
-  // Transitions to the same target are already merged in useAutomaton, so each
-  // entry here represents a distinct visual edge.
-  const outgoingGroups = new Map<string, FATransition[]>()
-  for (const t of transitions) {
-    if (t.fromId === t.toId) continue
-    const group = outgoingGroups.get(t.fromId)
-    if (group) group.push(t)
-    else outgoingGroups.set(t.fromId, [t])
-  }
-  for (const group of outgoingGroups.values()) {
-    group.sort((a, b) => {
-      const ta = stateById.get(a.toId), tb = stateById.get(b.toId)
-      if (!ta || !tb) return a.toId.localeCompare(b.toId)
-      const sa = stateById.get(a.fromId)!
-      const aa = Math.atan2(ta.y - sa.y, ta.x - sa.x)
-      const ab = Math.atan2(tb.y - sa.y, tb.x - sa.x)
-      return aa - ab || a.toId.localeCompare(b.toId)
-    })
-  }
 
   return (
     <div className={s.root}>
@@ -1141,11 +1255,9 @@ export default function DiagramCanvas({
 
             const isSel    = t.id === selectedId
             const isActive = activeTransIds?.has(t.id) ?? false
-            const isTwin   = twinSet.has(t.id)
-            const isFwd    = !isTwin || t.fromId < t.toId
-            const outgoing = outgoingGroups.get(t.fromId) ?? []
-            const fanIndex = Math.max(0, outgoing.findIndex(edge => edge.id === t.id))
-            const { d, lx, ly, nx, ny } = computeTransPath(from, to, isTwin, isFwd, fanIndex, outgoing.length)
+            const lay = edgeLayout.get(t.id) ?? { isTwin: false, isForward: true, fanIndex: 0, fanCount: 1 }
+            const { d, lx, ly, nx, ny, ax, ay } =
+              computeTransPath(from, to, lay.isTwin, lay.isForward, lay.fanIndex, lay.fanCount, t.curve)
 
             // The stack is centred on its anchor, so a label with N symbols
             // reaches (N-1)*LABEL_LINE/2 back toward the stroke. Push the whole
@@ -1173,7 +1285,7 @@ export default function DiagramCanvas({
                   d={d}
                   stroke="transparent" strokeWidth={18} fill="none"
                   data-tid={t.id}
-                  style={{ cursor: tool === 'delete' ? 'not-allowed' : 'pointer' }}
+                  style={{ cursor: tool === 'delete' ? 'not-allowed' : readOnly ? 'default' : 'grab' }}
                 />
                 {/* Visible path */}
                 <path
@@ -1184,6 +1296,15 @@ export default function DiagramCanvas({
                   markerEnd={arrow}
                   pointerEvents="none"
                 />
+                {/* Curve handle — drag to reshape the arc */}
+                {isSel && !readOnly && tool === 'select' && (
+                  <circle
+                    cx={ax} cy={ay} r={5}
+                    fill="#FFFFFF" stroke="#F97316" strokeWidth={2}
+                    data-tid={t.id}
+                    style={{ cursor: 'grab' }}
+                  />
+                )}
                 {/* Label */}
                 <text
                   x={tx} y={ty}

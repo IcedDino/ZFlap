@@ -30,6 +30,15 @@ export interface FATransition {
   kind?:      FATransitionKind
   rangeStart?: string
   rangeEnd?:   string
+  /**
+   * Hand-adjusted arc, set by dragging the edge in the editor. Undefined
+   * means "lay this edge out automatically" — the default straight/twin/fan
+   * routing. For a normal edge this is the signed perpendicular bend in world
+   * units, measured along the canonical (lower id → higher id) direction so
+   * the value survives however the pair is stored. For a self-loop it is the
+   * loop's own radius instead, since a loop has no chord to bend away from.
+   */
+  curve?:     number
 }
 
 interface AutomatonData {
@@ -51,6 +60,7 @@ type Action =
   | { type: 'SET_INITIAL';  id: string | null }
   | { type: 'ADD_TRANSITION';    id: string; fromId: string; toId: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
   | { type: 'EDIT_TRANSITION';   id: string; label: string; kind?: FATransitionKind; rangeStart?: string; rangeEnd?: string }
+  | { type: 'CURVE_TRANSITION';  id: string; curve: number | undefined }
   | { type: 'DELETE_TRANSITION'; id: string }
   | { type: 'SELECT';            id: string | null }
   | { type: 'DELETE_SELECTED' }
@@ -207,6 +217,14 @@ function reducer(data: AutomatonData, action: Action): AutomatonData {
                 rangeEnd: action.rangeEnd,
               }
             : t
+        ),
+      }
+
+    case 'CURVE_TRANSITION':
+      return {
+        ...data,
+        transitions: data.transitions.map(t =>
+          t.id === action.id ? { ...t, curve: action.curve } : t
         ),
       }
 
@@ -405,6 +423,13 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     onActionRef.current?.(action)
   }, [])
 
+  // `curve: undefined` hands the edge back to automatic layout.
+  const curveTransition = useCallback((id: string, curve: number | undefined) => {
+    const action: RemoteAction = { type: 'CURVE_TRANSITION', id, curve }
+    dispatch(action)
+    onActionRef.current?.(action)
+  }, [])
+
   const deleteTransition = useCallback((id: string) => {
     const action: RemoteAction = { type: 'DELETE_TRANSITION', id }
     dispatch(action)
@@ -457,6 +482,7 @@ export function useAutomaton(opts?: { persistLocal?: boolean; onAction?: (action
     setInitial,
     addTransition,
     editTransition,
+    curveTransition,
     deleteTransition,
     select,
     setAutomatonType,
